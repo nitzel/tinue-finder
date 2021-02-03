@@ -83,8 +83,10 @@ fn do_it<const S: usize>(server_notation: &str) {
     }
 
     print!("Tinue moves: ");
-    for mv in win_in_one(&mut position) {
-        print!("{}, ", position.move_to_san(&mv));
+    for mvs in win_in_one(&mut position) {
+        for mv in mvs {
+            print!("{}, ", position.move_to_san(&mv));
+        }
     }
     println!("");
 }
@@ -129,23 +131,25 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     }
 
     println!("Tinue 1 moves: ");
-    for mv in win_in_one(&mut position) {
-        println!(" {}, ", position.move_to_san(&mv));
+    for mvs in win_in_one(&mut position) {
+        for mv in mvs {
+            println!(" {}, ", position.move_to_san(&mv));
+        }
     }
 
     
-    let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
-    let mut position = <Board<5>>::start_board();
-    for move_string in input.split_whitespace() {
-        let mv = position.move_from_san(move_string).unwrap();
-        position.do_move(mv);
-    }
-    println!("\nTinue 2 moves: ");
-    for (mv, mvs) in win_in_two(&mut position) {
-        for mv2 in mvs {
-            println!("{} {}", position.move_to_san(&mv), position.move_to_san(&mv2));
-        }
-    }
+    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
+    // let mut position = <Board<5>>::start_board();
+    // for move_string in input.split_whitespace() {
+    //     let mv = position.move_from_san(move_string).unwrap();
+    //     position.do_move(mv);
+    // }
+    // println!("\nTinue 2 moves: ");
+    // for (mv, mvs) in win_in_two(&mut position) {
+    //     for mv2 in mvs {
+    //         println!("{} {}", position.move_to_san(&mv), position.move_to_san(&mv2));
+    //     }
+    // }
     
     let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
     let mut position = <Board<5>>::start_board();
@@ -154,18 +158,17 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
         position.do_move(mv);
     }
     println!("\nTinue 3 moves: ");
-    for (mv, mvs) in win_in_three(&mut position) {
-        for (mv2, mvs2) in mvs {
-            for mv3 in mvs2 {
-                println!("{}  {}  {}", position.move_to_san(&mv), position.move_to_san(&mv2), position.move_to_san(&mv3));
-            }
+    for mvs in win_in_three(&mut position) {
+        for mv in mvs {
+            print!("{}  ", position.move_to_san(&mv));
         }
+        println!("");
     }
     println!();
 }
 
 /// Returns every move that immediately wins the game
-fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Move> {
+fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
@@ -177,7 +180,7 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Move> {
             if result == GameResult::WhiteWin && position.side_to_move() == Color::Black
                 || result == GameResult::BlackWin && position.side_to_move() == Color::White
             {
-                tinue_moves.push(mv);
+                tinue_moves.push(vec![mv]);
             }
         }
         position.reverse_move(reverse_move);
@@ -186,7 +189,7 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Move> {
     tinue_moves
 }
 
-fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<Move>)> {
+fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
@@ -194,47 +197,35 @@ fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<Move>)>
 
     for mv in legal_moves {
         let reverse_move = position.do_move(mv.clone());
-        let winning_moves = win_in_one(position);
-        if !winning_moves.is_empty() {
-            tinue_moves.push((mv, winning_moves));
-        }
-        position.reverse_move(reverse_move);
-    }
-
-    tinue_moves
-}
-
-fn win_in_twox<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<Move>)> {
-    let mut legal_moves = vec![];
-    let mut tinue_moves = vec![];
-
-    position.generate_moves(&mut legal_moves);
-
-    for mv in legal_moves {
-        let reverse_move = position.do_move(mv.clone());
-        let winning_moves = win_in_one(position);
+        let mut winning_moves = win_in_one(position);
         if winning_moves.is_empty() {
             position.reverse_move(reverse_move);
             return vec![]; // abort if not all of them are succesfull
         }
-        tinue_moves.push((mv, winning_moves));
+        for wmvs in &mut winning_moves {
+            wmvs.insert(0, mv.clone());
+            tinue_moves.push(wmvs.clone());
+        }
         position.reverse_move(reverse_move);
     }
 
     tinue_moves
 }
 
-fn win_in_three<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<(Move, Vec<Move>)>)> {
+fn win_in_three<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     let mut legal_moves = vec![];
-    let mut tinue_moves = vec![];
+    let mut tinue_moves: Vec<Vec<Move>> = vec![];
 
     position.generate_moves(&mut legal_moves);
 
     for mv in legal_moves {
         let reverse_move = position.do_move(mv.clone());
-        let winning_moves = win_in_twox(position);
+        let mut winning_moves = win_in_two(position);
         if !winning_moves.is_empty() {
-            tinue_moves.push((mv, winning_moves));
+            for mvs in &mut winning_moves {
+                mvs.insert(0, mv.clone());
+                tinue_moves.push(mvs.clone());
+            }
         }
         position.reverse_move(reverse_move);
     }
