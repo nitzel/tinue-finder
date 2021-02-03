@@ -138,19 +138,6 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     }
 
     
-    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
-    // let mut position = <Board<5>>::start_board();
-    // for move_string in input.split_whitespace() {
-    //     let mv = position.move_from_san(move_string).unwrap();
-    //     position.do_move(mv);
-    // }
-    // println!("\nTinue 2 moves: ");
-    // for (mv, mvs) in win_in_two(&mut position) {
-    //     for mv2 in mvs {
-    //         println!("{} {}", position.move_to_san(&mv), position.move_to_san(&mv2));
-    //     }
-    // }
-    
     let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
@@ -158,7 +145,7 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
         position.do_move(mv);
     }
     println!("\nTinue 3 moves: ");
-    for mvs in win_in_three(&mut position) {
+    for mvs in win_in_two(&mut position, 3) {
         for mv in mvs {
             print!("{}  ", position.move_to_san(&mv));
         }
@@ -189,7 +176,11 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     tinue_moves
 }
 
-fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
+fn win_in_two<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Move>> {
+    if depth == 1 {
+        return win_in_one(position);
+    }
+
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
@@ -197,34 +188,25 @@ fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
 
     for mv in legal_moves {
         let reverse_move = position.do_move(mv.clone());
-        let mut winning_moves = win_in_one(position);
-        if winning_moves.is_empty() {
-            position.reverse_move(reverse_move);
-            return vec![]; // abort if not all of them are succesfull
-        }
-        for wmvs in &mut winning_moves {
-            wmvs.insert(0, mv.clone());
-            tinue_moves.push(wmvs.clone());
-        }
-        position.reverse_move(reverse_move);
-    }
-
-    tinue_moves
-}
-
-fn win_in_three<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
-    let mut legal_moves = vec![];
-    let mut tinue_moves: Vec<Vec<Move>> = vec![];
-
-    position.generate_moves(&mut legal_moves);
-
-    for mv in legal_moves {
-        let reverse_move = position.do_move(mv.clone());
-        let mut winning_moves = win_in_two(position);
-        if !winning_moves.is_empty() {
-            for mvs in &mut winning_moves {
-                mvs.insert(0, mv.clone());
-                tinue_moves.push(mvs.clone());
+        let mut winning_moves = win_in_two(position, depth - 1);
+        match depth % 2 {
+            0 => { // even - opponent plays
+                if winning_moves.is_empty() {
+                    position.reverse_move(reverse_move);
+                    return vec![]; // abort if not all of them are succesfull
+                }
+                for wmvs in &mut winning_moves {
+                    wmvs.insert(0, mv.clone());
+                    tinue_moves.push(wmvs.clone());
+                }
+            },
+            _ => { // odd - I play
+                if !winning_moves.is_empty() {
+                    for mvs in &mut winning_moves {
+                        mvs.insert(0, mv.clone());
+                        tinue_moves.push(mvs.clone());
+                    }
+                }
             }
         }
         position.reverse_move(reverse_move);
