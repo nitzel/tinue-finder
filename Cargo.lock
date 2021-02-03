@@ -274,6 +274,7 @@ dependencies = [
 name = "tinue-finder"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "board-game-traits",
  "pgn-traits",
  "taik",

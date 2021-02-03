@@ -10,3 +10,4 @@ edition = "2018"
 taik = { git = "https://github.com/MortenLohne/taik", branch = "f-generic-size" }
 board-game-traits = "0.1"
 pgn-traits = "0.1.1"
+arrayvec = "0.5.1"
