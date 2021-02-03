@@ -95,39 +95,71 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
 */
 
 
-    println!("{:?}", parse_move::<5>("M A1 A3 23"));
-    println!("{:?}", parse_move::<5>("M A1 A3 23").to_string::<5>());
-    println!("Testing translation");
-    let size: usize = 5;
-    // notation for https://www.playtak.com/games/393529/ninjaviewer
-    let server_notation = "P B5,P E4,P E3,P C2,P D2 W,P D5,P E2,P E1 C,P E5,P D3,M E3 D3 1,P C4,M E4 D4 1,P D1,M D4 C4 1,P B2,M D2 D3 1,P D2,P A3 C,P B3, P A4"; //,P A2";
-    let expected_ptn = "c3 e5 c4 c3+ e3 c2 e3 Cd1 Ce1 Se4 d3 b3 d4 2c4> d3+ c4 3d4-12";
+    // println!("{:?}", parse_move::<5>("M A1 A3 23"));
+    // println!("{:?}", parse_move::<5>("M A1 A3 23").to_string::<5>());
+    // println!("Testing translation");
+    // let size: usize = 5;
+    // // notation for https://www.playtak.com/games/393529/ninjaviewer
+    // let server_notation = "P B5,P E4,P E3,P C2,P D2 W,P D5,P E2,P E1 C,P E5,P D3,M E3 D3 1,P C4,M E4 D4 1,P D1,M D4 C4 1,P B2,M D2 D3 1,P D2,P A3 C,P B3, P A4"; //,P A2";
+    // let expected_ptn = "c3 e5 c4 c3+ e3 c2 e3 Cd1 Ce1 Se4 d3 b3 d4 2c4> d3+ c4 3d4-12";
 
-    println!("EXP: {:?}", expected_ptn.split_whitespace().collect::<Vec<&str>>());
-    match size {
-        3 => do_it::<3>(server_notation),
-        4 => do_it::<4>(server_notation),
-        5 => do_it::<5>(server_notation),
-        6 => do_it::<6>(server_notation),
-        7 => do_it::<7>(server_notation),
-        8 => do_it::<8>(server_notation),
-        s => panic!("Unsupported size {}", s),
-    };
+    // println!("EXP: {:?}", expected_ptn.split_whitespace().collect::<Vec<&str>>());
+    // match size {
+    //     3 => do_it::<3>(server_notation),
+    //     4 => do_it::<4>(server_notation),
+    //     5 => do_it::<5>(server_notation),
+    //     6 => do_it::<6>(server_notation),
+    //     7 => do_it::<7>(server_notation),
+    //     8 => do_it::<8>(server_notation),
+    //     s => panic!("Unsupported size {}", s),
+    // };
 
     // println!("Enter move notation as a simple list: ");
     // println!("Example input: d3 e3 d1 d2 c1 e1 Ce2 Cc2 a3 1c2>1 a4 d4 b4 c3 c5 d5 c4");
     // let mut input = String::new();
     // io::stdin().read_line(&mut input).unwrap();
     let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3- e3"; // d2";
+    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
+    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
 
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
         let mv = position.move_from_san(move_string).unwrap();
         position.do_move(mv);
     }
-    print!("Tinue moves: ");
+
+    println!("Tinue 1 moves: ");
     for mv in win_in_one(&mut position) {
-        print!("{}, ", position.move_to_san(&mv));
+        println!(" {}, ", position.move_to_san(&mv));
+    }
+
+    
+    let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
+    let mut position = <Board<5>>::start_board();
+    for move_string in input.split_whitespace() {
+        let mv = position.move_from_san(move_string).unwrap();
+        position.do_move(mv);
+    }
+    println!("\nTinue 2 moves: ");
+    for (mv, mvs) in win_in_two(&mut position) {
+        for mv2 in mvs {
+            println!("{} {}", position.move_to_san(&mv), position.move_to_san(&mv2));
+        }
+    }
+    
+    let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
+    let mut position = <Board<5>>::start_board();
+    for move_string in input.split_whitespace() {
+        let mv = position.move_from_san(move_string).unwrap();
+        position.do_move(mv);
+    }
+    println!("\nTinue 3 moves: ");
+    for (mv, mvs) in win_in_three(&mut position) {
+        for (mv2, mvs2) in mvs {
+            for mv3 in mvs2 {
+                println!("{}  {}  {}", position.move_to_san(&mv), position.move_to_san(&mv2), position.move_to_san(&mv3));
+            }
+        }
     }
     println!();
 }
@@ -147,6 +179,62 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Move> {
             {
                 tinue_moves.push(mv);
             }
+        }
+        position.reverse_move(reverse_move);
+    }
+
+    tinue_moves
+}
+
+fn win_in_two<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<Move>)> {
+    let mut legal_moves = vec![];
+    let mut tinue_moves = vec![];
+
+    position.generate_moves(&mut legal_moves);
+
+    for mv in legal_moves {
+        let reverse_move = position.do_move(mv.clone());
+        let winning_moves = win_in_one(position);
+        if !winning_moves.is_empty() {
+            tinue_moves.push((mv, winning_moves));
+        }
+        position.reverse_move(reverse_move);
+    }
+
+    tinue_moves
+}
+
+fn win_in_twox<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<Move>)> {
+    let mut legal_moves = vec![];
+    let mut tinue_moves = vec![];
+
+    position.generate_moves(&mut legal_moves);
+
+    for mv in legal_moves {
+        let reverse_move = position.do_move(mv.clone());
+        let winning_moves = win_in_one(position);
+        if winning_moves.is_empty() {
+            position.reverse_move(reverse_move);
+            return vec![]; // abort if not all of them are succesfull
+        }
+        tinue_moves.push((mv, winning_moves));
+        position.reverse_move(reverse_move);
+    }
+
+    tinue_moves
+}
+
+fn win_in_three<const S: usize>(position: &mut Board<S>) -> Vec<(Move, Vec<(Move, Vec<Move>)>)> {
+    let mut legal_moves = vec![];
+    let mut tinue_moves = vec![];
+
+    position.generate_moves(&mut legal_moves);
+
+    for mv in legal_moves {
+        let reverse_move = position.do_move(mv.clone());
+        let winning_moves = win_in_twox(position);
+        if !winning_moves.is_empty() {
+            tinue_moves.push((mv, winning_moves));
         }
         position.reverse_move(reverse_move);
     }
