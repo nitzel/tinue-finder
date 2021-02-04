@@ -145,7 +145,7 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
         position.do_move(mv);
     }
     println!("\nTinue 3 moves: ");
-    for mvs in win_in_two(&mut position, 3) {
+    for mvs in win_in_two(&mut position, 5) {
         for mv in mvs {
             print!("{}  ", position.move_to_san(&mv));
         }
@@ -187,24 +187,36 @@ fn win_in_two<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Mo
     position.generate_moves(&mut legal_moves);
 
     for mv in legal_moves {
+        let me_plays = depth % 2 == 1;
         let reverse_move = position.do_move(mv.clone());
-        let mut winning_moves = win_in_two(position, depth - 1);
-        match depth % 2 {
-            0 => { // even - opponent plays
-                if winning_moves.is_empty() {
-                    position.reverse_move(reverse_move);
-                    return vec![]; // abort if not all of them are succesfull
-                }
-                for wmvs in &mut winning_moves {
-                    wmvs.insert(0, mv.clone());
-                    tinue_moves.push(wmvs.clone());
-                }
-            },
-            _ => { // odd - I play
-                if !winning_moves.is_empty() {
-                    for mvs in &mut winning_moves {
-                        mvs.insert(0, mv.clone());
-                        tinue_moves.push(mvs.clone());
+        // Early win or loss
+        if let Some(result) = position.game_result() {
+            if me_plays
+                && (result == GameResult::WhiteWin && position.side_to_move() == Color::Black
+                    || result == GameResult::BlackWin && position.side_to_move() == Color::White)
+            {
+                tinue_moves.push(vec![mv]);
+            }
+        }
+        else {
+            let mut winning_moves = win_in_two(position, depth - 1);
+            match me_plays {
+                false => { // even - opponent plays
+                    if winning_moves.is_empty() {
+                        position.reverse_move(reverse_move);
+                        return vec![]; // abort if not all of them are succesfull
+                    }
+                    for wmvs in &mut winning_moves {
+                        wmvs.insert(0, mv.clone());
+                        tinue_moves.push(wmvs.clone());
+                    }
+                },
+                true => { // odd - I play
+                    if !winning_moves.is_empty() {
+                        for mvs in &mut winning_moves {
+                            mvs.insert(0, mv.clone());
+                            tinue_moves.push(mvs.clone());
+                        }
                     }
                 }
             }
