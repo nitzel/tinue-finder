@@ -120,32 +120,33 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     // println!("Example input: d3 e3 d1 d2 c1 e1 Ce2 Cc2 a3 1c2>1 a4 d4 b4 c3 c5 d5 c4");
     // let mut input = String::new();
     // io::stdin().read_line(&mut input).unwrap();
-    let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3- e3"; // d2";
+    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3- e3"; // d2";
     // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
     // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
 
-    let mut position = <Board<5>>::start_board();
-    for move_string in input.split_whitespace() {
-        let mv = position.move_from_san(move_string).unwrap();
-        position.do_move(mv);
-    }
+    // let mut position = <Board<5>>::start_board();
+    // for move_string in input.split_whitespace() {
+    //     let mv = position.move_from_san(move_string).unwrap();
+    //     position.do_move(mv);
+    // }
 
-    println!("Tinue 1 moves: ");
-    for mvs in win_in_one(&mut position) {
-        for mv in mvs {
-            println!(" {}, ", position.move_to_san(&mv));
-        }
-    }
+    // println!("Tinue 1 moves: ");
+    // for mvs in win_in_one(&mut position) {
+    //     for mv in mvs {
+    //         println!(" {}, ", position.move_to_san(&mv));
+    //     }
+    // }
 
-    
+    // input contains a road with tinue at least for the last 3 plies
     let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
+    let moves_till_tinue = 3;
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
         let mv = position.move_from_san(move_string).unwrap();
         position.do_move(mv);
     }
-    println!("\nTinue 3 moves: ");
-    for mvs in win_in_two(&mut position, 5) {
+    println!("\nTinue in up to {} plies: ", moves_till_tinue);
+    for mvs in win_in_n(&mut position, moves_till_tinue) {
         for mv in mvs {
             print!("{}  ", position.move_to_san(&mv));
         }
@@ -176,7 +177,7 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     tinue_moves
 }
 
-fn win_in_two<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Move>> {
+fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Move>> {
     if depth == 1 {
         return win_in_one(position);
     }
@@ -199,7 +200,7 @@ fn win_in_two<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Mo
             }
         }
         else {
-            let mut winning_moves = win_in_two(position, depth - 1);
+            let mut winning_moves = win_in_n(position, depth - 1);
             match me_plays {
                 false => { // even - opponent plays
                     if winning_moves.is_empty() {
