@@ -139,14 +139,20 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
 
     // input contains a road with tinue at least for the last 3 plies
     let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
-    let moves_till_tinue = 3;
+    // https://ptn.ninja/NoZQlgXgpgBARAVjgXQLAChRgC6zgB2wDsA6IsIgKwEMUNgARa3eAJgAZWBGEzkrgOx1MAFTABbPBwBcXABzSEQtJgBKUAM4BXADbZ4qgLTthGHjGoIYAIwAsGViRgBjAMw2EGV04Amtl-botk4gPu4Awj6e6AhOUO5Q0QBsTuFQ-lGGGAK+rBasGHJO1FwuBegAnE7WeT5cZuzVpXUA1Gbm1lwtZQA8Zo42CeVc3oOGLtFcwTaliX3oXLEWXTBRAHxmKcswUKxZCzk2tt0g1q5mRTC2NWtcXHlQXWZVO67jIM716BzVeUbsQA&name=KwD2AIAoCYEog&ply=38!
+    // Tinue starts here (7 ply deep)
+    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
+    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
+    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+";
+    let moves_till_tinue = 5;
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
         let mv = position.move_from_san(move_string).unwrap();
         position.do_move(mv);
     }
-    println!("\nTinue in up to {} plies: ", moves_till_tinue);
-    for mvs in win_in_n(&mut position, moves_till_tinue) {
+    let me = Color::White; // position.side_to_move();
+    println!("\nTinue in up to {} plies as {}: ", moves_till_tinue, me);
+    for mvs in win_in_n(&mut position, moves_till_tinue, me) {
         for mv in mvs {
             print!("{}  ", position.move_to_san(&mv));
         }
@@ -177,36 +183,53 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     tinue_moves
 }
 
-fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Move>> {
-    if depth == 1 {
-        return win_in_one(position);
-    }
+// Todo introduce my_color:Color so that we can start with the opponent making the first move as well
+// This will also help to identify early wins caused by the opponent
+// Todo can we return early once we've found a tinue by ourselves? We don't need all of them
+fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> Vec<Vec<Move>> {
+    // if depth == 1 {
+    //     return win_in_one(position);
+    // }
 
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
     position.generate_moves(&mut legal_moves);
 
+    let me_plays = position.side_to_move() == me;
+
+    let indent = match depth { 1 => "---", 2 => "--", 3 => "-", _ => "?" };
+    let indent_whitespace = match depth { 1 => "   ", 2 => "  ", 3 => " ", _ => "?w?" };
+
     for mv in legal_moves {
-        let me_plays = depth % 2 == 1;
+        println!("{}{}", indent, position.move_to_san(&mv));
         let reverse_move = position.do_move(mv.clone());
         // Early win or loss
         if let Some(result) = position.game_result() {
-            if me_plays
-                && (result == GameResult::WhiteWin && position.side_to_move() == Color::Black
-                    || result == GameResult::BlackWin && position.side_to_move() == Color::White)
+            if me_plays 
+            && (result == GameResult::WhiteWin && me == Color::White
+                || result == GameResult::BlackWin && me == Color::Black)
             {
-                tinue_moves.push(vec![mv]);
+                println!("{}Win", indent_whitespace);
+                position.reverse_move(reverse_move);
+                return vec![vec![mv]];
+                // tinue_moves.push(vec![mv]);
+            }
+            else {
+                println!("{}Early loss/draw {:?} d={} ply={}", indent_whitespace, result, depth, position.move_to_san(&mv));
             }
         }
-        else {
-            let mut winning_moves = win_in_n(position, depth - 1);
+        else if depth > 1 {
+            let mut winning_moves = win_in_n(position, depth - 1, me);
             match me_plays {
                 false => { // even - opponent plays
                     if winning_moves.is_empty() {
+                        println!("{}No tinue moves2", indent_whitespace);
                         position.reverse_move(reverse_move);
                         return vec![]; // abort if not all of them are succesfull
                     }
+                    // Else add all opponent moves
+                    println!("{}Add tinue moves2", indent_whitespace);
                     for wmvs in &mut winning_moves {
                         wmvs.insert(0, mv.clone());
                         tinue_moves.push(wmvs.clone());
@@ -214,10 +237,17 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32) -> Vec<Vec<Move
                 },
                 true => { // odd - I play
                     if !winning_moves.is_empty() {
+                        println!("{}Add tinue moves1", indent_whitespace);
                         for mvs in &mut winning_moves {
                             mvs.insert(0, mv.clone());
                             tinue_moves.push(mvs.clone());
                         }
+
+                        position.reverse_move(reverse_move);
+                        return tinue_moves;
+                    }
+                    else {
+                        println!("{}No tinue moves1", indent_whitespace);
                     }
                 }
             }
