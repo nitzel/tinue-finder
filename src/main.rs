@@ -226,7 +226,7 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
                     if winning_moves.is_empty() {
                         println!("{}No tinue moves2", indent_whitespace);
                         position.reverse_move(reverse_move);
-                        return vec![]; // abort if not all of them are succesfull
+                        return vec![]; // abort if any of the opponent moves doesn't leed to tinue
                     }
                     // Else add all opponent moves
                     println!("{}Add tinue moves2", indent_whitespace);
@@ -240,11 +240,9 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
                         println!("{}Add tinue moves1", indent_whitespace);
                         for mvs in &mut winning_moves {
                             mvs.insert(0, mv.clone());
-                            tinue_moves.push(mvs.clone());
                         }
-
                         position.reverse_move(reverse_move);
-                        return tinue_moves;
+                        return winning_moves;
                     }
                     else {
                         println!("{}No tinue moves1", indent_whitespace);
