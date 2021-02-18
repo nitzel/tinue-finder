@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
 use pgn_traits::pgn::PgnBoard;
-use std::{cmp::Ordering, io, iter, str::FromStr};
+use std::{cmp::Ordering, iter, str::FromStr};
 use taik::{board, board::{Board, Direction, Move, Movement, Role, StackMovement}};
 
 pub fn parse_move<const S: usize>(input: &str) -> board::Move {
@@ -243,28 +243,26 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
         }
         else if depth > 1 {
             let winning_moves = win_in_n(position, depth - 1, me);
-            match my_turn {
-                false => { // opponent plays
-                    if winning_moves.is_empty() {
-                        // Because the opponet play `mv` doesn't lead to Tinue,
-                        // this entire branch is not on the road to Tinue.
-                        position.reverse_move(reverse_move);
-                        return vec![]; 
-                    }
-                    // This and the previous opponent moves are on the road to Tinue so add it
+            if my_turn { // I play
+                if !winning_moves.is_empty() {
+                    // This move leads to Tinue
                     let this_move = TinueMove{ mv, next: Some(winning_moves)};
-                    tinue_moves.push(this_move)
-                },
-                true => { // I play
-                    if !winning_moves.is_empty() {
-                        // This move leads to Tinue
-                        let this_move = TinueMove{ mv, next: Some(winning_moves)};
-                        position.reverse_move(reverse_move);
-                        return vec![this_move];
-                        // If all Tinue moves are required this_move
-                        // would need to be pushed too tinue_moves
-                    }
+                    position.reverse_move(reverse_move);
+                    return vec![this_move];
+                    // If all Tinue moves are required this_move
+                    // would need to be pushed too tinue_moves
                 }
+            }
+            else { // opponent plays
+                if winning_moves.is_empty() {
+                    // Because the opponet play `mv` doesn't lead to Tinue,
+                    // this entire branch is not on the road to Tinue.
+                    position.reverse_move(reverse_move);
+                    return vec![]; 
+                }
+                // This and the previous opponent moves are on the road to Tinue so add it
+                let this_move = TinueMove{ mv, next: Some(winning_moves)};
+                tinue_moves.push(this_move)
             }
         }
         position.reverse_move(reverse_move);
