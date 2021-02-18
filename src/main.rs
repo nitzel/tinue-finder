@@ -143,7 +143,8 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     // Tinue starts here (7 ply deep)
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
-    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+";
+    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
+    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
     let moves_till_tinue = 5;
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
@@ -224,20 +225,23 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
         let reverse_move = position.do_move(mv.clone());
         // Early win or loss
         if let Some(result) = position.game_result() {
-            if me_plays 
-            && (result == GameResult::WhiteWin && me == Color::White
-                || result == GameResult::BlackWin && me == Color::Black)
+            if me_plays
             {
-                //println!("{}Win", indent_whitespace);
-                position.reverse_move(reverse_move);
-                return vec![TinueMove { mv:mv, next: None }];
+                if result == GameResult::WhiteWin && me == Color::White
+                || result == GameResult::BlackWin && me == Color::Black {
+                    //println!("{}Win", indent_whitespace);
+                    position.reverse_move(reverse_move);
+                    return vec![TinueMove { mv:mv, next: None }];
+                }
             }
             else {
+                position.reverse_move(reverse_move);
+                return vec![];
                 //println!("{}Early loss/draw {:?} d={} ply={}", indent_whitespace, result, depth, position.move_to_san(&mv));
             }
         }
         else if depth > 1 {
-            let mut winning_moves = win_in_n(position, depth - 1, me);
+            let winning_moves = win_in_n(position, depth - 1, me);
             match me_plays {
                 false => { // even - opponent plays
                     if winning_moves.is_empty() {
