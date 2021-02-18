@@ -152,11 +152,10 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
         position.do_move(mv);
     }
     let me = Color::White; // position.side_to_move();
-    println!("\nTinue in up to {} plies as {}: ", moves_till_tinue, me);
+    println!("\n// Tinue in up to {} plies as {}: ", moves_till_tinue, me);
     let winning_moves = win_in_n(&mut position, moves_till_tinue, me);
-    for mv in winning_moves {
-        print_tinue_move(&position, mv, 0);
-    }
+    
+    print_tinue_moves_json(&position, winning_moves);
     // for mvs in win_in_n(&mut position, moves_till_tinue, me) {
     //     for mv in mvs {
     //         print!("{}  ", position.move_to_san(&mv));
@@ -193,77 +192,77 @@ struct TinueMove {
     next: Option<Vec<TinueMove>>,
 }
 
-fn print_tinue_move<const S: usize>(position: &Board<S>, mv: TinueMove, depth: usize) {
-    println!("{}{}", "  ".repeat(depth), position.move_to_san(&mv.mv));
-    if let Some(next) = mv.next {
-        for next_move in next {
-            print_tinue_move(position, next_move, depth+1);
+fn print_tinue_moves_json<const S: usize>(position: &Board<S>, moves: Vec<TinueMove>) {
+    fn print_tinue_move<const S: usize>(position: &Board<S>, mv: TinueMove, depth: usize) {
+        println!("{}\"{}\": {{", "  ".repeat(depth), position.move_to_san(&mv.mv));
+        if let Some(next) = mv.next {
+            for next_move in next {
+                print_tinue_move(position, next_move, depth+1);
+            }
         }
+        println!("{}}},", "  ".repeat(depth))
     }
+
+    println!("{{");
+    for mv in moves {
+        print_tinue_move(&position, mv, 1);
+    }
+    println!("}}");
 }
 
 // Todo introduce my_color:Color so that we can start with the opponent making the first move as well
 // This will also help to identify early wins caused by the opponent
 // Todo can we return early once we've found a tinue by ourselves? We don't need all of them
 fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> Vec<TinueMove> {
-    // if depth == 1 {
-    //     return win_in_one(position);
-    // }
-
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
     position.generate_moves(&mut legal_moves);
 
-    let me_plays = position.side_to_move() == me;
-
-    let indent = match depth { 1 => "---", 2 => "--", 3 => "-", _ => "?" };
-    let indent_whitespace = match depth { 1 => "   ", 2 => "  ", 3 => " ", _ => "?w?" };
+    let my_turn = position.side_to_move() == me;
 
     for mv in legal_moves {
-        //println!("{}{}", indent, position.move_to_san(&mv));
         let reverse_move = position.do_move(mv.clone());
-        // Early win or loss
         if let Some(result) = position.game_result() {
-            if me_plays
+            // Early win or loss
+            if my_turn
             {
                 if result == GameResult::WhiteWin && me == Color::White
                 || result == GameResult::BlackWin && me == Color::Black {
-                    //println!("{}Win", indent_whitespace);
                     position.reverse_move(reverse_move);
                     return vec![TinueMove { mv:mv, next: None }];
                 }
             }
             else {
+                // Early loss or draw
+                // TODO: Actually, this could be an early road/flatwin if that's the only possible enemy move
+                //       So we should add checks for that
                 position.reverse_move(reverse_move);
                 return vec![];
-                //println!("{}Early loss/draw {:?} d={} ply={}", indent_whitespace, result, depth, position.move_to_san(&mv));
             }
         }
         else if depth > 1 {
             let winning_moves = win_in_n(position, depth - 1, me);
-            match me_plays {
-                false => { // even - opponent plays
+            match my_turn {
+                false => { // opponent plays
                     if winning_moves.is_empty() {
-                        //println!("{}No tinue moves2", indent_whitespace);
+                        // Because the opponet play `mv` doesn't lead to Tinue,
+                        // this entire branch is not on the road to Tinue.
                         position.reverse_move(reverse_move);
-                        return vec![]; // abort if any of the opponent moves doesn't leed to tinue
+                        return vec![]; 
                     }
-                    // Else add all opponent moves
-                    //println!("{}Add tinue moves2", indent_whitespace);
-                    let this_move = TinueMove{ mv: mv, next: Some(winning_moves)};
+                    // This and the previous opponent moves are on the road to Tinue so add it
+                    let this_move = TinueMove{ mv, next: Some(winning_moves)};
                     tinue_moves.push(this_move)
                 },
-                true => { // odd - I play
+                true => { // I play
                     if !winning_moves.is_empty() {
-                        //println!("{}Add tinue moves1", indent_whitespace);
-                        
-                        let this_move = TinueMove{ mv: mv, next: Some(winning_moves)};
+                        // This move leads to Tinue
+                        let this_move = TinueMove{ mv, next: Some(winning_moves)};
                         position.reverse_move(reverse_move);
                         return vec![this_move];
-                    }
-                    else {
-                        //println!("{}No tinue moves1", indent_whitespace);
+                        // If all Tinue moves are required this_move
+                        // would need to be pushed too tinue_moves
                     }
                 }
             }
