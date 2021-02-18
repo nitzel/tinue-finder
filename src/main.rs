@@ -152,13 +152,17 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     }
     let me = Color::White; // position.side_to_move();
     println!("\nTinue in up to {} plies as {}: ", moves_till_tinue, me);
-    for mvs in win_in_n(&mut position, moves_till_tinue, me) {
-        for mv in mvs {
-            print!("{}  ", position.move_to_san(&mv));
-        }
-        println!("");
+    let winning_moves = win_in_n(&mut position, moves_till_tinue, me);
+    for mv in winning_moves {
+        print_tinue_move(&position, mv, 0);
     }
-    println!();
+    // for mvs in win_in_n(&mut position, moves_till_tinue, me) {
+    //     for mv in mvs {
+    //         print!("{}  ", position.move_to_san(&mv));
+    //     }
+    //     println!("");
+    // }
+    // println!();
 }
 
 /// Returns every move that immediately wins the game
@@ -183,10 +187,24 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     tinue_moves
 }
 
+struct TinueMove {
+    mv: Move,
+    next: Option<Vec<TinueMove>>,
+}
+
+fn print_tinue_move<const S: usize>(position: &Board<S>, mv: TinueMove, depth: usize) {
+    println!("{}{}", "  ".repeat(depth), position.move_to_san(&mv.mv));
+    if let Some(next) = mv.next {
+        for next_move in next {
+            print_tinue_move(position, next_move, depth+1);
+        }
+    }
+}
+
 // Todo introduce my_color:Color so that we can start with the opponent making the first move as well
 // This will also help to identify early wins caused by the opponent
 // Todo can we return early once we've found a tinue by ourselves? We don't need all of them
-fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> Vec<Vec<Move>> {
+fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> Vec<TinueMove> {
     // if depth == 1 {
     //     return win_in_one(position);
     // }
@@ -202,7 +220,7 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
     let indent_whitespace = match depth { 1 => "   ", 2 => "  ", 3 => " ", _ => "?w?" };
 
     for mv in legal_moves {
-        println!("{}{}", indent, position.move_to_san(&mv));
+        //println!("{}{}", indent, position.move_to_san(&mv));
         let reverse_move = position.do_move(mv.clone());
         // Early win or loss
         if let Some(result) = position.game_result() {
@@ -210,13 +228,12 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
             && (result == GameResult::WhiteWin && me == Color::White
                 || result == GameResult::BlackWin && me == Color::Black)
             {
-                println!("{}Win", indent_whitespace);
+                //println!("{}Win", indent_whitespace);
                 position.reverse_move(reverse_move);
-                return vec![vec![mv]];
-                // tinue_moves.push(vec![mv]);
+                return vec![TinueMove { mv:mv, next: None }];
             }
             else {
-                println!("{}Early loss/draw {:?} d={} ply={}", indent_whitespace, result, depth, position.move_to_san(&mv));
+                //println!("{}Early loss/draw {:?} d={} ply={}", indent_whitespace, result, depth, position.move_to_san(&mv));
             }
         }
         else if depth > 1 {
@@ -224,28 +241,25 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
             match me_plays {
                 false => { // even - opponent plays
                     if winning_moves.is_empty() {
-                        println!("{}No tinue moves2", indent_whitespace);
+                        //println!("{}No tinue moves2", indent_whitespace);
                         position.reverse_move(reverse_move);
                         return vec![]; // abort if any of the opponent moves doesn't leed to tinue
                     }
                     // Else add all opponent moves
-                    println!("{}Add tinue moves2", indent_whitespace);
-                    for wmvs in &mut winning_moves {
-                        wmvs.insert(0, mv.clone());
-                        tinue_moves.push(wmvs.clone());
-                    }
+                    //println!("{}Add tinue moves2", indent_whitespace);
+                    let this_move = TinueMove{ mv: mv, next: Some(winning_moves)};
+                    tinue_moves.push(this_move)
                 },
                 true => { // odd - I play
                     if !winning_moves.is_empty() {
-                        println!("{}Add tinue moves1", indent_whitespace);
-                        for mvs in &mut winning_moves {
-                            mvs.insert(0, mv.clone());
-                        }
+                        //println!("{}Add tinue moves1", indent_whitespace);
+                        
+                        let this_move = TinueMove{ mv: mv, next: Some(winning_moves)};
                         position.reverse_move(reverse_move);
-                        return winning_moves;
+                        return vec![this_move];
                     }
                     else {
-                        println!("{}No tinue moves1", indent_whitespace);
+                        //println!("{}No tinue moves1", indent_whitespace);
                     }
                 }
             }
