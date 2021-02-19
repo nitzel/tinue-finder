@@ -1,8 +1,11 @@
+#![feature(slice_group_by)]
 use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
 use pgn_traits::pgn::PgnBoard;
 use std::{cmp::Ordering, iter, str::FromStr};
 use taik::{board, board::{Board, Direction, Move, Movement, Role, StackMovement}};
+use serde::{Serialize};
+use serde_json;
 
 pub fn parse_move<const S: usize>(input: &str) -> board::Move {
     let words: Vec<&str> = input.split_whitespace().collect();
@@ -155,7 +158,11 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     println!("\n// Tinue in up to {} plies as {}: ", moves_till_tinue, me);
     let winning_moves = win_in_n(&mut position, moves_till_tinue, me);
     
-    print_tinue_moves_json(&position, winning_moves);
+
+
+    print_tinue_moves_json(&winning_moves);
+    println!("\n\\\\###\n\n{}", serde_json::to_string(&tms_to_trs_me(&winning_moves)).unwrap());
+
     // for mvs in win_in_n(&mut position, moves_till_tinue, me) {
     //     for mv in mvs {
     //         print!("{}  ", position.move_to_san(&mv));
@@ -187,17 +194,69 @@ fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
     tinue_moves
 }
 
+type Mov = String;
+
+#[derive(Serialize, Debug, Eq, PartialEq, Clone)]
+struct TR {
+    moves: Vec<Mov>,
+    solutions: Vec<TR>,
+}
+
+
+fn tms_to_trs_me(tmvs: &Vec<TinueMove>) -> Vec<TR> {
+    // mvs.iter().map(|mv|
+    //     match mv.next {
+    //         Some(next) => tm_to_tr(next),
+    //         None => Tr { }
+    //     }
+    // )
+
+    let trs: Vec<(Mov, Option<Vec<TR>>)> = tmvs.iter().map(|tm| (
+        tm.mv.clone(),
+        match &tm.next {
+            Some(next) => Some(tms_to_trs_me(&next)),
+            None => None
+        }
+    )).collect();
+
+    let groups = trs.group_by(|(_, next1), (_, next2)| next1 == next2);
+
+    groups.map(|group| TR {
+        moves: group.iter().map(|(mv, _)| mv.clone()).collect::<Vec<String>>(),
+        solutions: match group.first() {
+            None => vec![],
+            Some((_, solution)) => solution.clone().unwrap_or(vec![])
+        }
+         //.map(|(_, solution)| )
+            // .iter()
+            // .filter(|(_, solution)| solution.is_some())
+            // .flat_map(|(_, solution)| solution.clone().unwrap())
+            // .collect::<Vec<TR>>()
+    }).collect()
+}
+
+// fn tm_to_tr(mv: &TinueMove) -> TR {
+//     if let Some(next) = mv.next {
+//         let next_trs = tm_to_tr(&next);
+//     }
+//     TR {
+//         mv: mv.mv,
+//         next: None,
+//     }
+// }
+
+
 struct TinueMove {
-    mv: Move,
+    mv: Mov,
     next: Option<Vec<TinueMove>>,
 }
 
-fn print_tinue_moves_json<const S: usize>(position: &Board<S>, moves: Vec<TinueMove>) {
-    fn print_tinue_move<const S: usize>(position: &Board<S>, mv: TinueMove, depth: usize) {
-        println!("{}\"{}\": {{", "  ".repeat(depth), position.move_to_san(&mv.mv));
-        if let Some(next) = mv.next {
+fn print_tinue_moves_json(moves: &Vec<TinueMove>) {
+    fn print_tinue_move(mv: &TinueMove, depth: usize) {
+        println!("{}\"{}\": {{", "  ".repeat(depth), mv.mv);
+        if let Some(next) = &mv.next {
             for next_move in next {
-                print_tinue_move(position, next_move, depth+1);
+                print_tinue_move(&next_move, depth+1);
             }
         }
         println!("{}}},", "  ".repeat(depth))
@@ -205,7 +264,7 @@ fn print_tinue_moves_json<const S: usize>(position: &Board<S>, moves: Vec<TinueM
 
     println!("{{");
     for mv in moves {
-        print_tinue_move(&position, mv, 1);
+        print_tinue_move(mv, 1);
     }
     println!("}}");
 }
@@ -230,7 +289,7 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
                 if result == GameResult::WhiteWin && me == Color::White
                 || result == GameResult::BlackWin && me == Color::Black {
                     position.reverse_move(reverse_move);
-                    return vec![TinueMove { mv:mv, next: None }];
+                    return vec![TinueMove { mv: position.move_to_san(&mv), next: None }];
                 }
             }
             else {
@@ -246,11 +305,12 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
             if my_turn { // I play
                 if !winning_moves.is_empty() {
                     // This move leads to Tinue
-                    let this_move = TinueMove{ mv, next: Some(winning_moves)};
-                    position.reverse_move(reverse_move);
-                    return vec![this_move];
+                    let this_move = TinueMove{ mv: position.move_to_san(&mv), next: Some(winning_moves)};
+                    // position.reverse_move(reverse_move);
+                    // return vec![this_move];
                     // If all Tinue moves are required this_move
                     // would need to be pushed too tinue_moves
+                    tinue_moves.push(this_move)
                 }
             }
             else { // opponent plays
@@ -261,7 +321,7 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
                     return vec![]; 
                 }
                 // This and the previous opponent moves are on the road to Tinue so add it
-                let this_move = TinueMove{ mv, next: Some(winning_moves)};
+                let this_move = TinueMove{ mv: position.move_to_san(&mv), next: Some(winning_moves)};
                 tinue_moves.push(this_move)
             }
         }
