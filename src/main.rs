@@ -156,7 +156,7 @@ P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P
     }
     let me = Color::White; // position.side_to_move();
     println!("\n// Tinue in up to {} plies as {}: ", moves_till_tinue, me);
-    let winning_moves = win_in_n(&mut position, moves_till_tinue, me);
+    let winning_moves = win_in_n(&mut position, moves_till_tinue, me, true);
     
 
 
@@ -199,6 +199,7 @@ type Mov = String;
 #[derive(Serialize, Debug, Eq, PartialEq, Clone)]
 struct TR {
     moves: Vec<Mov>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     solutions: Vec<TR>,
 }
 
@@ -272,7 +273,7 @@ fn print_tinue_moves_json(moves: &Vec<TinueMove>) {
 // Todo introduce my_color:Color so that we can start with the opponent making the first move as well
 // This will also help to identify early wins caused by the opponent
 // Todo can we return early once we've found a tinue by ourselves? We don't need all of them
-fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> Vec<TinueMove> {
+fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color, find_only_one_tinue: bool) -> Vec<TinueMove> {
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
@@ -288,8 +289,11 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
             {
                 if result == GameResult::WhiteWin && me == Color::White
                 || result == GameResult::BlackWin && me == Color::Black {
-                    position.reverse_move(reverse_move);
-                    return vec![TinueMove { mv: position.move_to_san(&mv), next: None }];
+                    if find_only_one_tinue {
+                        position.reverse_move(reverse_move);
+                        return vec![TinueMove { mv: position.move_to_san(&mv), next: None }];
+                    }
+                    tinue_moves.push(TinueMove { mv: position.move_to_san(&mv), next: None })
                 }
             }
             else {
@@ -301,15 +305,16 @@ fn win_in_n<const S: usize>(position: &mut Board<S>, depth: u32, me: Color) -> V
             }
         }
         else if depth > 1 {
-            let winning_moves = win_in_n(position, depth - 1, me);
+            let winning_moves = win_in_n(position, depth - 1, me, find_only_one_tinue);
             if my_turn { // I play
                 if !winning_moves.is_empty() {
                     // This move leads to Tinue
                     let this_move = TinueMove{ mv: position.move_to_san(&mv), next: Some(winning_moves)};
-                    // position.reverse_move(reverse_move);
-                    // return vec![this_move];
-                    // If all Tinue moves are required this_move
-                    // would need to be pushed too tinue_moves
+
+                    if find_only_one_tinue {
+                        position.reverse_move(reverse_move);
+                        return vec![this_move];
+                    }
                     tinue_moves.push(this_move)
                 }
             }
