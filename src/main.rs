@@ -83,9 +83,8 @@ fn do_it<const S: usize>(
     moves_to_undo: usize,
     depth: u32,
     find_only_one_tinue: bool,
-) -> Option<Vec<TinueMove>> {
+) -> Option<IDDFSResult<Vec<TinueMove>>> {
     let moves = parse_server_notation::<S>(server_notation);
-
     // Apply moves
     let mut position = Board::<S>::start_board();
     for (_i, ply) in moves.iter().take(moves.len() - moves_to_undo).enumerate() {
@@ -94,12 +93,7 @@ fn do_it<const S: usize>(
 
     let active_color = position.side_to_move();
 
-    let mvs = win_in_n(&mut position, depth, active_color, find_only_one_tinue);
-
-    if mvs.is_empty() {
-        return None;
-    }
-    return Some(mvs);
+    return iddf_tinue_search(&mut position, depth, active_color, find_only_one_tinue);
 }
 
 struct GameRow {
@@ -110,7 +104,7 @@ struct GameRow {
 }
 
 fn main() {
-    let depth = 3;
+    let max_depth = 5;
     let moves_to_undo = 5;
     const BOARDSIZE: usize = 5;
     let find_only_one_tinue = true;
@@ -118,28 +112,37 @@ fn main() {
     let conn = Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
     let games_iter = stmt
-        .query_map(params!["R-0", "0-R", 8000, BOARDSIZE as u32], |row| {
-            Ok(GameRow {
-                id: row.get(0)?,
-                notation: row.get(1)?,
-                result: row.get(2)?,
-                size: row.get(3)?,
-            })
-        })
+        .query_map(
+            params!["R-0", "0-R", 8089 /*8000*/, BOARDSIZE as u32],
+            |row| {
+                Ok(GameRow {
+                    id: row.get(0)?,
+                    notation: row.get(1)?,
+                    result: row.get(2)?,
+                    size: row.get(3)?,
+                })
+            },
+        )
         .unwrap();
 
     for game in games_iter {
         let timer = Instant::now();
         let game = game.unwrap();
 
-        let moves = do_it::<BOARDSIZE>(&game.notation, moves_to_undo, depth, find_only_one_tinue);
-        let move_options = moves.map(|mvs| tinuemove_to_options(&mvs));
+        let moves = do_it::<BOARDSIZE>(
+            &game.notation,
+            moves_to_undo,
+            max_depth,
+            find_only_one_tinue,
+        );
+        let actual_depth = moves.as_ref().map(|x| x.depth).unwrap_or(0);
+        let move_options = moves.map(|mvs| tinuemove_to_options(&mvs.result));
         let json_string = serde_json::to_string(&move_options).unwrap();
 
         let time_taken = timer.elapsed().as_millis();
         println!(
-            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
-            game.id, game.size, game.result, depth, moves_to_undo, time_taken, json_string
+            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
+            game.id, game.size, game.result, max_depth, actual_depth, moves_to_undo, time_taken, json_string
         );
     }
 
@@ -212,28 +215,6 @@ fn main() {
         "{}",
         serde_json::to_string(&tinuemove_to_options(&winning_moves)).unwrap()
     );
-}
-
-/// Returns every move that immediately wins the game
-fn win_in_one<const S: usize>(position: &mut Board<S>) -> Vec<Vec<Move>> {
-    let mut legal_moves = vec![];
-    let mut tinue_moves = vec![];
-
-    position.generate_moves(&mut legal_moves);
-
-    for mv in legal_moves {
-        let reverse_move = position.do_move(mv.clone());
-        if let Some(result) = position.game_result() {
-            if result == GameResult::WhiteWin && position.side_to_move() == Color::Black
-                || result == GameResult::BlackWin && position.side_to_move() == Color::White
-            {
-                tinue_moves.push(vec![mv]);
-            }
-        }
-        position.reverse_move(reverse_move);
-    }
-
-    tinue_moves
 }
 
 type Mov = String;
@@ -320,6 +301,26 @@ fn print_tinue_moves_json(moves: &Vec<TinueMove>) {
     println!("}}");
 }
 
+struct IDDFSResult<T> {
+    depth: u32,
+    result: T,
+}
+
+fn iddf_tinue_search<const S: usize>(
+    position: &mut Board<S>,
+    max_depth: u32,
+    me: Color,
+    find_only_one_tinue: bool,
+) -> Option<IDDFSResult<Vec<TinueMove>>> {
+    for depth in (1..(max_depth + 1)).step_by(2) {
+        let result = win_in_n(position, depth, me, find_only_one_tinue);
+        if result.len() > 0 {
+            return Some(IDDFSResult { depth, result });
+        }
+    }
+
+    None
+}
 /// Returns all **Roads to Tinue** for player `me`
 /// that are available at `position`.
 ///
