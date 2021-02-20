@@ -136,7 +136,16 @@ fn main() {
             find_only_one_tinue,
         );
         let actual_depth = moves.as_ref().map(|x| x.depth).unwrap_or(0);
-        let move_options = moves.map(|mvs| tinuemove_to_options(&mvs.result));
+        // These move_options include a first move from `me` and then answers to all possible replies from `opponent`
+        // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
+        // a single example of a Tinue (the longest one available) in the move_options below
+        // let move_options = moves.as_ref().map(|mvs| tinuemove_to_options(&mvs.result));
+        let move_options = moves.map(|IDDFSResult { depth: _, result }| {
+            result
+                .first()
+                .map(|m| move_list_to_vec(get_longest_sequence(m).1))
+        });
+
         let json_string = serde_json::to_string(&move_options).unwrap();
 
         let time_taken = timer.elapsed().as_millis();
@@ -266,7 +275,52 @@ fn tinuemove_to_options(tmvs: &Vec<TinueMove>) -> Vec<TinueMoveOptions> {
         .collect()
 }
 
+/// Concatenates the List into a vector
+fn move_list_to_vec(mv: MoveListNode) -> Vec<Mov> {
+    if let Some(next) = mv.next {
+        let mut list = move_list_to_vec(*next);
+        list.insert(0, mv.mv);
+        return list;
+    }
+    return vec![mv.mv];
+}
+
+struct MoveListNode {
+    mv: Mov,
+    next: Option<Box<MoveListNode>>,
+}
+/// Returns a longest **Road to Tinue**.
+///
+/// This is probably a road where the opponent defends *fairly* well (that's hard to measure because it's a Tinue and no move is an effective defense)
+fn get_longest_sequence(tinue_move: &TinueMove) -> (usize, MoveListNode) {
+    if let Some(next) = &tinue_move.next {
+        let longest_sequence = next
+            .iter()
+            .map(|n| get_longest_sequence(n))
+            .max_by_key(|(depth, _)| *depth);
+
+        if let Some((depth, next_move)) = longest_sequence {
+            return (
+                depth + 1,
+                MoveListNode {
+                    mv: tinue_move.mv.clone(),
+                    next: Some(Box::new(next_move)),
+                },
+            );
+        }
+    }
+
+    return (
+        1,
+        MoveListNode {
+            mv: tinue_move.mv.clone(),
+            next: None,
+        },
+    );
+}
+
 /// Represents a `Move` on the **Road to Tinue** and possible responses (`next`)
+#[derive(Debug)]
 struct TinueMove {
     mv: Mov,
     /// When `mv` is played, any of these responses will stay on the **Road to Tinue**
