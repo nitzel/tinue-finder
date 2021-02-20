@@ -6,8 +6,8 @@ use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
 use serde_json;
-use std::time::Instant;
 use std::{cmp::Ordering, iter, str::FromStr};
+use std::{time::Instant, usize};
 use taik::{
     board,
     board::{Board, Direction, Move, Movement, Role, StackMovement},
@@ -78,31 +78,28 @@ fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
     move_splits.map(parse_move::<S>).collect()
 }
 
-fn do_it<const S: usize>(server_notation: &str, moves_to_undo: usize) {
+fn do_it<const S: usize>(
+    server_notation: &str,
+    moves_to_undo: usize,
+    depth: u32,
+    find_only_one_tinue: bool,
+) -> Option<Vec<TinueMove>> {
     let moves = parse_server_notation::<S>(server_notation);
-    println!("SRV: {}", server_notation);
-    println!(
-        "PTN: {:?}",
-        moves
-            .iter()
-            .map(|m| m.to_string::<S>())
-            .collect::<Vec<String>>()
-    );
 
     // Apply moves
     let mut position = Board::<S>::start_board();
     for (_i, ply) in moves.iter().take(moves.len() - moves_to_undo).enumerate() {
-        println!("Ply{} {}", _i, ply.to_string::<S>());
         position.do_move(ply.clone());
     }
 
-    print!("Tinue moves: ");
-    for mvs in win_in_one(&mut position) {
-        for mv in mvs {
-            print!("{}, ", position.move_to_san(&mv));
-        }
+    let active_color = position.side_to_move();
+
+    let mvs = win_in_n(&mut position, depth, active_color, find_only_one_tinue);
+
+    if mvs.is_empty() {
+        return None;
     }
-    println!("");
+    return Some(mvs);
 }
 
 struct GameRow {
@@ -113,10 +110,15 @@ struct GameRow {
 }
 
 fn main() {
+    let depth = 3;
+    let moves_to_undo = 5;
+    const BOARDSIZE: usize = 5;
+    let find_only_one_tinue = true;
+
     let conn = Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
     let games_iter = stmt
-        .query_map(params!["R-0", "0-R", 8000, 4], |row| {
+        .query_map(params!["R-0", "0-R", 8000, BOARDSIZE as u32], |row| {
             Ok(GameRow {
                 id: row.get(0)?,
                 notation: row.get(1)?,
@@ -130,12 +132,14 @@ fn main() {
         let timer = Instant::now();
         let game = game.unwrap();
 
-        do_it::<4>(&game.notation, 1);
+        let moves = do_it::<BOARDSIZE>(&game.notation, moves_to_undo, depth, find_only_one_tinue);
+        let move_options = moves.map(|mvs| tinuemove_to_options(&mvs));
+        let json_string = serde_json::to_string(&move_options).unwrap();
 
         let time_taken = timer.elapsed().as_millis();
         println!(
-            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"timeMs\":{}, \"tinue\":\"{}\"}}",
-            game.id, game.size, game.result, time_taken, "insert here"
+            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
+            game.id, game.size, game.result, depth, moves_to_undo, time_taken, json_string
         );
     }
 
