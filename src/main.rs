@@ -81,14 +81,14 @@ fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
 
 fn do_it<const S: usize>(
     server_notation: &str,
-    moves_to_undo: usize,
+    moves_to_undo: u32,
     depth: u32,
     find_only_one_tinue: bool,
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
     let mut position = Board::<S>::start_board();
-    for ply in moves.iter().take(moves.len() - moves_to_undo) {
+    for ply in moves.iter().take(moves.len() - moves_to_undo as usize) {
         position.do_move(ply.clone());
     }
 
@@ -100,7 +100,7 @@ fn do_it<const S: usize>(
 fn do_it_sized(
     board_size: u32,
     server_notation: &str,
-    moves_to_undo: usize,
+    moves_to_undo: u32,
     depth: u32,
     find_only_one_tinue: bool,
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
@@ -116,7 +116,12 @@ fn do_it_sized(
     }
 }
 
-fn handle_game(game: &GameRow, max_depth: u32, moves_to_undo: usize, find_only_one_tinue: bool) {
+fn handle_game(
+    game: &GameRow,
+    max_depth: u32,
+    moves_to_undo: u32,
+    find_only_one_tinue: bool,
+) -> Option<TinueGameRow> {
     let timer = Instant::now();
 
     let moves = do_it_sized(
@@ -144,6 +149,24 @@ fn handle_game(game: &GameRow, max_depth: u32, moves_to_undo: usize, find_only_o
         "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
         game.id, game.size, game.result, max_depth, actual_depth, moves_to_undo, time_taken, json_string
     );
+
+    match actual_depth {
+        0 | 1 => None,
+        _ => Some(TinueGameRow {
+            moves_to_undo,
+            gameid: game.id,
+            tinue: json_string,
+            size: game.size,
+            tinue_depth: actual_depth,
+        }),
+    }
+}
+struct TinueGameRow {
+    gameid: u32,
+    size: u32,
+    moves_to_undo: u32,
+    tinue_depth: u32,
+    tinue: String,
 }
 
 struct GameRow {
@@ -154,14 +177,32 @@ struct GameRow {
 }
 
 fn main() {
-    let board_size = 5;
+    let board_size = 4;
     let find_only_one_tinue = true;
     // To skip the old anon ones that may have broken notation or other issues
     let min_game_id = 8000;
 
-    let conn = Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-    let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
-    let games_iter = stmt
+    let conn =
+        Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tinues (
+        id integer primary key,
+        gameid integer NOT NULL REFERENCES games(id),
+        size integer,
+        moves_to_undo integer,
+        tinue_depth integer,
+        tinue TEXT)",
+        params![],
+    )
+    .unwrap();
+
+    let mut stmt_get_games = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
+    let mut stmt_add_tinue_row = conn
+        .prepare(
+            "INSERT INTO tinues(gameid, size, moves_to_undo, tinue_depth, tinue) VALUES(?,?,?,?,?)",
+        )
+        .unwrap();
+    let games_iter = stmt_get_games
         .query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
             Ok(GameRow {
                 id: row.get(0)?,
@@ -174,8 +215,17 @@ fn main() {
 
     for game in games_iter {
         let game = game.unwrap();
-        handle_game(&game, 3, 3, find_only_one_tinue);
-        handle_game(&game, 5, 5, find_only_one_tinue);
+        for depth in &[3, 5 as u32] {
+            handle_game(&game, *depth, *depth, find_only_one_tinue).and_then(|r| {
+                Some(stmt_add_tinue_row.execute(params![
+                    r.gameid,
+                    r.size,
+                    r.moves_to_undo,
+                    r.tinue_depth,
+                    r.tinue
+                ]))
+            });
+        }
     }
 
     return;
