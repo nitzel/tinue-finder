@@ -12,6 +12,7 @@ use taik::{
     board,
     board::{Board, Direction, Move, Movement, Role, StackMovement},
 };
+
 pub fn parse_move<const S: usize>(input: &str) -> board::Move {
     let words: Vec<&str> = input.split_whitespace().collect();
     if words[0] == "P" {
@@ -87,13 +88,62 @@ fn do_it<const S: usize>(
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
     let mut position = Board::<S>::start_board();
-    for (_i, ply) in moves.iter().take(moves.len() - moves_to_undo).enumerate() {
+    for ply in moves.iter().take(moves.len() - moves_to_undo) {
         position.do_move(ply.clone());
     }
 
     let active_color = position.side_to_move();
 
     return iddf_tinue_search(&mut position, depth, active_color, find_only_one_tinue);
+}
+
+fn do_it_sized(
+    board_size: u32,
+    server_notation: &str,
+    moves_to_undo: usize,
+    depth: u32,
+    find_only_one_tinue: bool,
+) -> Option<IDDFSResult<Vec<TinueMove>>> {
+    match board_size {
+        3 => do_it::<3>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        4 => do_it::<4>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        5 => do_it::<5>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        6 => do_it::<6>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        7 => do_it::<7>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        8 => do_it::<8>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        9 => do_it::<9>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        _ => panic!("Board size '{}' is not supported", board_size),
+    }
+}
+
+fn handle_game(game: &GameRow, max_depth: u32, moves_to_undo: usize, find_only_one_tinue: bool) {
+    let timer = Instant::now();
+
+    let moves = do_it_sized(
+        game.size,
+        &game.notation,
+        moves_to_undo,
+        max_depth,
+        find_only_one_tinue,
+    );
+    let actual_depth = moves.as_ref().map(|x| x.depth).unwrap_or(0);
+    // These move_options include a first move from `me` and then answers to all possible replies from `opponent`
+    // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
+    // a single example of a Tinue (the longest one available) in the move_options below
+    // let move_options = moves.as_ref().map(|mvs| tinuemove_to_options(&mvs.result));
+    let move_options = moves.map(|IDDFSResult { depth: _, result }| {
+        result
+            .first()
+            .map(|m| move_list_to_vec(get_longest_sequence(m).1))
+    });
+
+    let json_string = serde_json::to_string(&move_options).unwrap();
+
+    let time_taken = timer.elapsed().as_millis();
+    println!(
+        "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
+        game.id, game.size, game.result, max_depth, actual_depth, moves_to_undo, time_taken, json_string
+    );
 }
 
 struct GameRow {
@@ -104,55 +154,28 @@ struct GameRow {
 }
 
 fn main() {
-    let max_depth = 5;
-    let moves_to_undo = 5;
-    const BOARDSIZE: usize = 5;
+    let board_size = 5;
     let find_only_one_tinue = true;
+    // To skip the old anon ones that may have broken notation or other issues
+    let min_game_id = 8000;
 
     let conn = Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
     let games_iter = stmt
-        .query_map(
-            params!["R-0", "0-R", 8089 /*8000*/, BOARDSIZE as u32],
-            |row| {
-                Ok(GameRow {
-                    id: row.get(0)?,
-                    notation: row.get(1)?,
-                    result: row.get(2)?,
-                    size: row.get(3)?,
-                })
-            },
-        )
+        .query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
+            Ok(GameRow {
+                id: row.get(0)?,
+                notation: row.get(1)?,
+                result: row.get(2)?,
+                size: row.get(3)?,
+            })
+        })
         .unwrap();
 
     for game in games_iter {
-        let timer = Instant::now();
         let game = game.unwrap();
-
-        let moves = do_it::<BOARDSIZE>(
-            &game.notation,
-            moves_to_undo,
-            max_depth,
-            find_only_one_tinue,
-        );
-        let actual_depth = moves.as_ref().map(|x| x.depth).unwrap_or(0);
-        // These move_options include a first move from `me` and then answers to all possible replies from `opponent`
-        // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
-        // a single example of a Tinue (the longest one available) in the move_options below
-        // let move_options = moves.as_ref().map(|mvs| tinuemove_to_options(&mvs.result));
-        let move_options = moves.map(|IDDFSResult { depth: _, result }| {
-            result
-                .first()
-                .map(|m| move_list_to_vec(get_longest_sequence(m).1))
-        });
-
-        let json_string = serde_json::to_string(&move_options).unwrap();
-
-        let time_taken = timer.elapsed().as_millis();
-        println!(
-            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
-            game.id, game.size, game.result, max_depth, actual_depth, moves_to_undo, time_taken, json_string
-        );
+        handle_game(&game, 3, 3, find_only_one_tinue);
+        handle_game(&game, 5, 5, find_only_one_tinue);
     }
 
     return;
