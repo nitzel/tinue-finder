@@ -2,14 +2,16 @@
 use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
 use pgn_traits::pgn::PgnBoard;
+use rusqlite::Connection;
+use rusqlite::{params, OpenFlags};
 use serde::Serialize;
 use serde_json;
+use std::time::Instant;
 use std::{cmp::Ordering, iter, str::FromStr};
 use taik::{
     board,
     board::{Board, Direction, Move, Movement, Role, StackMovement},
 };
-
 pub fn parse_move<const S: usize>(input: &str) -> board::Move {
     let words: Vec<&str> = input.split_whitespace().collect();
     if words[0] == "P" {
@@ -76,7 +78,7 @@ fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
     move_splits.map(parse_move::<S>).collect()
 }
 
-fn do_it<const S: usize>(server_notation: &str) {
+fn do_it<const S: usize>(server_notation: &str, moves_to_undo: usize) {
     let moves = parse_server_notation::<S>(server_notation);
     println!("SRV: {}", server_notation);
     println!(
@@ -89,7 +91,7 @@ fn do_it<const S: usize>(server_notation: &str) {
 
     // Apply moves
     let mut position = Board::<S>::start_board();
-    for (_i, ply) in moves.iter().enumerate() {
+    for (_i, ply) in moves.iter().take(moves.len() - moves_to_undo).enumerate() {
         println!("Ply{} {}", _i, ply.to_string::<S>());
         position.do_move(ply.clone());
     }
@@ -103,7 +105,42 @@ fn do_it<const S: usize>(server_notation: &str) {
     println!("");
 }
 
+struct GameRow {
+    id: u32,
+    notation: String,
+    result: String,
+    size: u32,
+}
+
 fn main() {
+    let conn = Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
+    let games_iter = stmt
+        .query_map(params!["R-0", "0-R", 8000, 4], |row| {
+            Ok(GameRow {
+                id: row.get(0)?,
+                notation: row.get(1)?,
+                result: row.get(2)?,
+                size: row.get(3)?,
+            })
+        })
+        .unwrap();
+
+    for game in games_iter {
+        let timer = Instant::now();
+        let game = game.unwrap();
+
+        do_it::<4>(&game.notation, 1);
+
+        let time_taken = timer.elapsed().as_millis();
+        println!(
+            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"timeMs\":{}, \"tinue\":\"{}\"}}",
+            game.id, game.size, game.result, time_taken, "insert here"
+        );
+    }
+
+    return;
+
     /*
     P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P F5,P D6,P G5,P A5,P B6,P C6,P A4,M B5 C5 1,P B5 C,M C5 D5 2,M B5 C5 1,M D4 D5 2,P D4,P E4,P F4,P E2,M C5 C4 1,M D5 D4 2,P C5 W,M D5 E5 3,P D5 W,P E6 C,M D5 E5 1,M E6 E5 1,P D5 W,P E6,P F3 W,P D2,M F3 E3 1,P E7,M C4 C3 2,P E1,P F6 W,P B1,P C1,P C2,P B2,P A2,P B5,P B7,P A7,P A6,P B3,P C7,M C3 C2 3,M A6 A7 1,P A6,M D4 D3 3,M F6 E6 1,M A5 A6 1,P D7,P A5 W,P G6,P G7,P F7,P F6,P F3,P D4,M D7 C7 1,M C6 C7 1,P D7 W,M E5 D5 1,P C6 W,M D5 E5 2,M D7 C7 1,M A5 B5 1,P D7,P D5,M C6 D6 1,P F2,P G2,P G3,P G4,M E5 F5 7,M F7 G7 1,M F5 G5 3,P E5 W,P A3,M E5 F5 1,P E5 W,M F5 F2 3 1 2,M E4 F4 1,M F3 F4 1,P E4 W,M F4 F7 1 2 2,M E5 F5 1,M E6 F6 2,P E5,P E6,P C3,M C7 A7 2 2,M B5 B6 2,P C7,M B6 B7 3,M D6 D7 2,M G5 G6 4,P A5,P B6,M A7 A6 3,M B7 A7 5,P C6,P B5,P D6,M G6 G7 5,M D7 E7 2,M G7 F7 6,M F6 E6 5,M F7 F6 7,P G5,M F6 E6 1,M F2 E2 3,M F5 F6 2,P G6
     */
