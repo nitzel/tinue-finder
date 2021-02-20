@@ -306,6 +306,7 @@ struct IDDFSResult<T> {
     result: T,
 }
 
+/// Returns the resulting tinue and the maximum length of it
 fn iddf_tinue_search<const S: usize>(
     position: &mut Board<S>,
     max_depth: u32,
@@ -321,6 +322,25 @@ fn iddf_tinue_search<const S: usize>(
 
     None
 }
+
+/// Recursive with `win_in_n` to explore each branch breadth first via IDDFS,
+/// thus removing Tinues drawn in the length by both players making moves
+/// that don't affect the Tinue.
+fn iddf_win_in_n<const S: usize>(
+    position: &mut Board<S>,
+    max_depth: u32,
+    me: Color,
+    find_only_one_tinue: bool,
+) -> Vec<TinueMove> {
+    for depth in 1..(max_depth + 1) {
+        let result = win_in_n(position, depth, me, find_only_one_tinue);
+        if result.len() > 0 {
+            return result;
+        }
+    }
+    return vec![];
+}
+
 /// Returns all **Roads to Tinue** for player `me`
 /// that are available at `position`.
 ///
@@ -376,7 +396,7 @@ fn win_in_n<const S: usize>(
                 return vec![];
             }
         } else if depth > 1 {
-            let winning_moves = win_in_n(position, depth - 1, me, find_only_one_tinue);
+            let winning_moves = iddf_win_in_n(position, depth - 1, me, find_only_one_tinue);
             if my_turn {
                 // I play
                 if !winning_moves.is_empty() {
