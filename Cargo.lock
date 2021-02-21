@@ -428,6 +428,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "board-game-traits",
+ "clap",
  "pgn-traits",
  "rusqlite",
  "serde",

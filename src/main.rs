@@ -1,6 +1,7 @@
 #![feature(slice_group_by)]
 use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
+use clap::{App, Arg};
 use pgn_traits::pgn::PgnBoard;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
@@ -81,14 +82,14 @@ fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
 
 fn do_it<const S: usize>(
     server_notation: &str,
-    moves_to_undo: u32,
+    plies_to_undo: u32,
     depth: u32,
     find_only_one_tinue: bool,
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
     let mut position = Board::<S>::start_board();
-    for ply in moves.iter().take(moves.len() - moves_to_undo as usize) {
+    for ply in moves.iter().take(moves.len() - plies_to_undo as usize) {
         position.do_move(ply.clone());
     }
 
@@ -100,18 +101,18 @@ fn do_it<const S: usize>(
 fn do_it_sized(
     board_size: u32,
     server_notation: &str,
-    moves_to_undo: u32,
+    plies_to_undo: u32,
     depth: u32,
     find_only_one_tinue: bool,
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     match board_size {
-        3 => do_it::<3>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        4 => do_it::<4>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        5 => do_it::<5>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        6 => do_it::<6>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        7 => do_it::<7>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        8 => do_it::<8>(server_notation, moves_to_undo, depth, find_only_one_tinue),
-        9 => do_it::<9>(server_notation, moves_to_undo, depth, find_only_one_tinue),
+        3 => do_it::<3>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        4 => do_it::<4>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        5 => do_it::<5>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        6 => do_it::<6>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        7 => do_it::<7>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        8 => do_it::<8>(server_notation, plies_to_undo, depth, find_only_one_tinue),
+        9 => do_it::<9>(server_notation, plies_to_undo, depth, find_only_one_tinue),
         _ => panic!("Board size '{}' is not supported", board_size),
     }
 }
@@ -119,7 +120,7 @@ fn do_it_sized(
 fn handle_game(
     game: &GameRow,
     max_depth: u32,
-    moves_to_undo: u32,
+    plies_to_undo: u32,
     find_only_one_tinue: bool,
 ) -> Option<TinueGameRow> {
     let timer = Instant::now();
@@ -127,7 +128,7 @@ fn handle_game(
     let moves = do_it_sized(
         game.size,
         &game.notation,
-        moves_to_undo,
+        plies_to_undo,
         max_depth,
         find_only_one_tinue,
     );
@@ -147,13 +148,13 @@ fn handle_game(
     let time_taken = timer.elapsed().as_millis();
     println!(
         "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
-        game.id, game.size, game.result, max_depth, actual_depth, moves_to_undo, time_taken, json_string
+        game.id, game.size, game.result, max_depth, actual_depth, plies_to_undo, time_taken, json_string
     );
 
     match actual_depth {
-        0 | 1 => None,
+        0 | 1 => None, // Ignore no wins and  immediate wins
         _ => Some(TinueGameRow {
-            moves_to_undo,
+            plies_to_undo: plies_to_undo,
             gameid: game.id,
             tinue: json_string,
             size: game.size,
@@ -164,7 +165,7 @@ fn handle_game(
 struct TinueGameRow {
     gameid: u32,
     size: u32,
-    moves_to_undo: u32,
+    plies_to_undo: u32,
     tinue_depth: u32,
     tinue: String,
 }
@@ -177,31 +178,106 @@ struct GameRow {
 }
 
 fn main() {
-    let board_size = 4;
-    let find_only_one_tinue = true;
-    // To skip the old anon ones that may have broken notation or other issues
-    let min_game_id = 8000;
+    let matches = App::new("Tinue Finder")
+        .version("0.1.0")
+        .author("Jan Schnitker <jan.s.92@web.de>")
+        .about("Checks a database of Tak games for Tinues and writes them in a new table")
+        .arg(
+            Arg::with_name("database")
+                .long("db")
+                .takes_value(true)
+                .help("Path of the database")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("board_size")
+                .short("n")
+                .long("board-size")
+                .takes_value(true)
+                .help("Checks only games of this board size")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("start_id")
+                .short("s")
+                .long("start-id")
+                .takes_value(true)
+                .help("ID of the game/row to start with (allows you to proceed where you left the last time)")
+                .required(false)
+                .default_value("8000"),
+        )
+        .arg(
+            Arg::with_name("plies_to_undo")
+                .short("u")
+                .long("undo")
+                .takes_value(true)
+                .help("Number of plies to undo from the end position")
+                .required(false)
+                .default_value("3"),
+        )
+        .arg(
+            Arg::with_name("max_depth")
+                .short("d")
+                .long("max-depth")
+                .takes_value(true)
+                .help("Maximum depth/length of a Tinue in plies (must be odd)")
+                .required(false)
+                .default_value("3"),
+        )
+        .arg(
+            Arg::with_name("test")
+                .short("t")
+                .long("test")
+                .help("Only logs the output, does not write to the database")
+                .required(false)
+        )
+        .get_matches();
 
-    let conn =
-        Connection::open_with_flags("playtak.db", OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS tinues (
+    let get_arg_number =
+        |arg_name: &str| -> u32 { matches.value_of(arg_name).unwrap().parse::<u32>().unwrap() };
+
+    let board_size = get_arg_number("board_size");
+    let plies_to_undo = get_arg_number("plies_to_undo");
+    let max_depth = get_arg_number("max_depth");
+    // To skip games already dealt with or that are old and invalid
+    let min_game_id = get_arg_number("start_id");
+    let db_path = matches.value_of("database").unwrap();
+    let test = matches.occurrences_of("test") > 0;
+
+    let find_only_one_tinue = true;
+
+    if max_depth % 2 != 1 {
+        panic!("max_depth must be an odd number as it represents the number of plies looked ahead. An even number would mean that your opponent does the final ply");
+    }
+    if plies_to_undo <= 1 {
+        panic!("plies_to_undo must be greater than 1 to make sense");
+    }
+
+    println!("Test={}", test);
+    println!("board_size={}", board_size);
+    println!("plies_to_undo={}", plies_to_undo);
+    println!("max_depth={}", max_depth);
+    println!("min_game_id={}", min_game_id);
+    println!("db_path={}", db_path);
+
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    if !test {
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tinues (
         id integer primary key,
         gameid integer NOT NULL REFERENCES games(id),
         size integer,
-        moves_to_undo integer,
+        plies_to_undo integer,
         tinue_depth integer,
         tinue TEXT)",
-        params![],
-    )
-    .unwrap();
-
-    let mut stmt_get_games = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
-    let mut stmt_add_tinue_row = conn
-        .prepare(
-            "INSERT INTO tinues(gameid, size, moves_to_undo, tinue_depth, tinue) VALUES(?,?,?,?,?)",
+            params![],
         )
         .unwrap();
+    }
+
+    let mut stmt_get_games = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
+    let mut stmt_add_tinue = conn.prepare("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)").unwrap();
+
     let games_iter = stmt_get_games
         .query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
             Ok(GameRow {
@@ -215,17 +291,18 @@ fn main() {
 
     for game in games_iter {
         let game = game.unwrap();
-        for depth in &[3, 5 as u32] {
-            handle_game(&game, *depth, *depth, find_only_one_tinue).and_then(|r| {
-                Some(stmt_add_tinue_row.execute(params![
-                    r.gameid,
-                    r.size,
-                    r.moves_to_undo,
-                    r.tinue_depth,
-                    r.tinue
-                ]))
-            });
-        }
+        handle_game(&game, max_depth, plies_to_undo, find_only_one_tinue).and_then(|r| {
+            if test {
+                return None;
+            }
+            Some(stmt_add_tinue.execute(params![
+                r.gameid,
+                r.size,
+                r.plies_to_undo,
+                r.tinue_depth,
+                r.tinue
+            ]))
+        });
     }
 
     return;
@@ -282,15 +359,15 @@ fn main() {
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
-    let moves_till_tinue = 5;
+    let plies_till_tinue = 5;
     let mut position = <Board<5>>::start_board();
     for move_string in input.split_whitespace() {
         let mv = position.move_from_san(move_string).unwrap();
         position.do_move(mv);
     }
     let me = Color::White; // position.side_to_move();
-    println!("\n// Tinue in up to {} plies as {}: ", moves_till_tinue, me);
-    let winning_moves = win_in_n(&mut position, moves_till_tinue, me, true);
+    println!("\n// Tinue in up to {} plies as {}: ", plies_till_tinue, me);
+    let winning_moves = win_in_n(&mut position, plies_till_tinue, me, true);
 
     print_tinue_moves_json(&winning_moves);
     println!(
@@ -477,7 +554,7 @@ fn iddf_win_in_n<const S: usize>(
 ///
 /// #### Remarks
 /// If `depth` is high, this may still return sub-optimal Tinues
-/// where the opponent is not blocking the Tinue and thus `me` can waste another move.
+/// where the opponent is not blocking the Tinue and thus `me` can waste another ply.
 ///
 /// #### Caution
 /// This method becomes very slow very quickly. `depth=5`, maybe `7` is recommended.
