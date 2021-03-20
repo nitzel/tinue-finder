@@ -7,6 +7,7 @@ use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
 use serde_json;
+use std::sync::{Arc, Mutex};
 use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
 use taik::{
@@ -225,6 +226,14 @@ fn main() {
                 .default_value("3"),
         )
         .arg(
+            Arg::with_name("threads")
+                .long("threads")
+                .takes_value(true)
+                .help("Number of threads to use to find puzzles concurrently")
+                .required(false)
+                .default_value("1"),
+        )
+        .arg(
             Arg::with_name("test")
                 .short("t")
                 .long("test")
@@ -239,6 +248,7 @@ fn main() {
     let board_size = get_arg_number("board_size");
     let plies_to_undo = get_arg_number("plies_to_undo");
     let max_depth = get_arg_number("max_depth");
+    let number_of_threads = get_arg_number("threads");
     // To skip games already dealt with or that are old and invalid
     let min_game_id = get_arg_number("start_id");
     let db_path = matches.value_of("database").unwrap();
@@ -252,6 +262,10 @@ fn main() {
     if plies_to_undo <= 1 {
         panic!("plies_to_undo must be greater than 1 to make sense");
     }
+    if number_of_threads == 0 {
+        panic!("at least 1 thread is required to run");
+    }
+    let number_of_threads = number_of_threads as usize;
 
     println!("Test={}", test);
     println!("board_size={}", board_size);
@@ -259,26 +273,38 @@ fn main() {
     println!("max_depth={}", max_depth);
     println!("min_game_id={}", min_game_id);
     println!("db_path={}", db_path);
+    println!("threads={}", number_of_threads);
+
+    // Configure maximum number of threads used
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(number_of_threads)
+        .build_global()
+        .unwrap();
 
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
+    let conn_mtx: Arc<Mutex<Connection>> = Arc::new(Mutex::new(conn));
+
     if !test {
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS tinues (
+        conn_mtx
+            .lock()
+            .unwrap()
+            .execute(
+                "CREATE TABLE IF NOT EXISTS tinues (
         id integer primary key,
         gameid integer NOT NULL REFERENCES games(id),
         size integer,
         plies_to_undo integer,
         tinue_depth integer,
         tinue TEXT)",
-            params![],
-        )
-        .unwrap();
+                params![],
+            )
+            .unwrap();
     }
 
-    let mut stmt_get_games = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?").unwrap();
-    let mut stmt_add_tinue = conn.prepare("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)").unwrap();
-
-    let games_iter = stmt_get_games
+    let conn = conn_mtx.lock().unwrap();
+    let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?")
+        .unwrap();
+    let gamerows = stmt
         .query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
             Ok(GameRow {
                 id: row.get(0)?,
@@ -287,23 +313,32 @@ fn main() {
                 size: row.get(3)?,
             })
         })
-        .unwrap();
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect::<Vec<GameRow>>();
 
-    for game in games_iter {
-        let game = game.unwrap();
-        handle_game(&game, max_depth, plies_to_undo, find_only_one_tinue).and_then(|r| {
-            if test {
-                return None;
-            }
-            Some(stmt_add_tinue.execute(params![
-                r.gameid,
-                r.size,
-                r.plies_to_undo,
-                r.tinue_depth,
-                r.tinue
-            ]))
-        });
-    }
+    rayon::scope_fifo(|scope| {
+        for game in gamerows.iter() {
+            let conn_arc = Arc::clone(&conn_mtx);
+            scope.spawn_fifo(move |_| {
+                println!("# Processing game #{}", game.id);
+                handle_game(&game, max_depth, plies_to_undo, find_only_one_tinue).and_then(|r| {
+                    if test {
+                        return None;
+                    }
+
+                    let local_conn = conn_arc.lock().unwrap();
+                    Some(local_conn.execute("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)", params![
+                        r.gameid,
+                        r.size,
+                        r.plies_to_undo,
+                        r.tinue_depth,
+                        r.tinue
+                    ]))
+                });
+            });
+        }
+    });
 
     return;
 
@@ -352,12 +387,13 @@ fn main() {
     // }
 
     // input contains a road with tinue at least for the last 3 plies
-    let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
-                                                                    // https://ptn.ninja/NoZQlgXgpgBARAVjgXQLAChRgC6zgB2wDsA6IsIgKwEMUNgARa3eAJgAZWBGEzkrgOx1MAFTABbPBwBcXABzSEQtJgBKUAM4BXADbZ4qgLTthGHjGoIYAIwAsGViRgBjAMw2EGV04Amtl-botk4gPu4Awj6e6AhOUO5Q0QBsTuFQ-lGGGAK+rBasGHJO1FwuBegAnE7WeT5cZuzVpXUA1Gbm1lwtZQA8Zo42CeVc3oOGLtFcwTaliX3oXLEWXTBRAHxmKcswUKxZCzk2tt0g1q5mRTC2NWtcXHlQXWZVO67jIM716BzVeUbsQA&name=KwD2AIAoCYEog&ply=38!
-                                                                    // Tinue starts here (7 ply deep)
-    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
-    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
-    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
+    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
+    //                                                                 // https://ptn.ninja/NoZQlgXgpgBARAVjgXQLAChRgC6zgB2wDsA6IsIgKwEMUNgARa3eAJgAZWBGEzkrgOx1MAFTABbPBwBcXABzSEQtJgBKUAM4BXADbZ4qgLTthGHjGoIYAIwAsGViRgBjAMw2EGV04Amtl-botk4gPu4Awj6e6AhOUO5Q0QBsTuFQ-lGGGAK+rBasGHJO1FwuBegAnE7WeT5cZuzVpXUA1Gbm1lwtZQA8Zo42CeVc3oOGLtFcwTaliX3oXLEWXTBRAHxmKcswUKxZCzk2tt0g1q5mRTC2NWtcXHlQXWZVO67jIM716BzVeUbsQA&name=KwD2AIAoCYEog&ply=38!
+    //                                                                 // Tinue starts here (7 ply deep)
+
+    // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
+    // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
+    // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
     let plies_till_tinue = 5;
     let mut position = <Board<5>>::start_board();
