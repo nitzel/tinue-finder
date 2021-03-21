@@ -315,11 +315,13 @@ fn main() {
             .unwrap();
     }
 
-    let conn = conn_mtx.lock().unwrap();
-    let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?")
-        .unwrap();
-    let gamerows = stmt
-        .query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
+    // use lambda function here to scope and drop `conn` MutexGuard - otherwhise it will hold the lock forever.
+    let gamerows = (|| {
+        let conn = conn_mtx.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?")
+            .unwrap();
+
+        stmt.query_map(params!["R-0", "0-R", min_game_id - 1, board_size], |row| {
             Ok(GameRow {
                 id: row.get(0)?,
                 notation: row.get(1)?,
@@ -329,26 +331,27 @@ fn main() {
         })
         .unwrap()
         .map(|r| r.unwrap())
-        .collect::<Vec<GameRow>>();
+        .collect::<Vec<GameRow>>()
+    })();
 
     rayon::scope_fifo(|scope| {
         for game in gamerows.iter() {
             let conn_arc = Arc::clone(&conn_mtx);
             scope.spawn_fifo(move |_| {
-                println!("# Processing game #{}", game.id);
+                println!("// Processing game #{}", game.id);
                 handle_game(&game, max_depth, plies_to_undo, !multi_tinue).and_then(|r| {
                     if test {
                         return None;
                     }
 
                     let local_conn = conn_arc.lock().unwrap();
-                    Some(local_conn.execute("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)", params![
-                        r.gameid,
-                        r.size,
-                        r.plies_to_undo,
-                        r.tinue_depth,
-                        r.tinue
-                    ]))
+                    Some(local_conn.execute("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)", 
+                        params![
+                            r.gameid,
+                            r.size,
+                            r.plies_to_undo,
+                            r.tinue_depth,
+                            r.tinue]).unwrap())
                 });
             });
         }
@@ -356,80 +359,30 @@ fn main() {
 
     return;
 
-    /*
-    P A1,P G1,P D4,P C4,P D3,P C3,P D5,P E4 C,P C5,P B5,P B4 C,P E3,P E5,M E4 D4 1,P F5,P D6,P G5,P A5,P B6,P C6,P A4,M B5 C5 1,P B5 C,M C5 D5 2,M B5 C5 1,M D4 D5 2,P D4,P E4,P F4,P E2,M C5 C4 1,M D5 D4 2,P C5 W,M D5 E5 3,P D5 W,P E6 C,M D5 E5 1,M E6 E5 1,P D5 W,P E6,P F3 W,P D2,M F3 E3 1,P E7,M C4 C3 2,P E1,P F6 W,P B1,P C1,P C2,P B2,P A2,P B5,P B7,P A7,P A6,P B3,P C7,M C3 C2 3,M A6 A7 1,P A6,M D4 D3 3,M F6 E6 1,M A5 A6 1,P D7,P A5 W,P G6,P G7,P F7,P F6,P F3,P D4,M D7 C7 1,M C6 C7 1,P D7 W,M E5 D5 1,P C6 W,M D5 E5 2,M D7 C7 1,M A5 B5 1,P D7,P D5,M C6 D6 1,P F2,P G2,P G3,P G4,M E5 F5 7,M F7 G7 1,M F5 G5 3,P E5 W,P A3,M E5 F5 1,P E5 W,M F5 F2 3 1 2,M E4 F4 1,M F3 F4 1,P E4 W,M F4 F7 1 2 2,M E5 F5 1,M E6 F6 2,P E5,P E6,P C3,M C7 A7 2 2,M B5 B6 2,P C7,M B6 B7 3,M D6 D7 2,M G5 G6 4,P A5,P B6,M A7 A6 3,M B7 A7 5,P C6,P B5,P D6,M G6 G7 5,M D7 E7 2,M G7 F7 6,M F6 E6 5,M F7 F6 7,P G5,M F6 E6 1,M F2 E2 3,M F5 F6 2,P G6
-    */
-
-    // println!("{:?}", parse_move::<5>("M A1 A3 23"));
-    // println!("{:?}", parse_move::<5>("M A1 A3 23").to_string::<5>());
-    // println!("Testing translation");
-    // let size: usize = 5;
-    // // notation for https://www.playtak.com/games/393529/ninjaviewer
-    // let server_notation = "P B5,P E4,P E3,P C2,P D2 W,P D5,P E2,P E1 C,P E5,P D3,M E3 D3 1,P C4,M E4 D4 1,P D1,M D4 C4 1,P B2,M D2 D3 1,P D2,P A3 C,P B3, P A4"; //,P A2";
-    // let expected_ptn = "c3 e5 c4 c3+ e3 c2 e3 Cd1 Ce1 Se4 d3 b3 d4 2c4> d3+ c4 3d4-12";
-
-    // println!("EXP: {:?}", expected_ptn.split_whitespace().collect::<Vec<&str>>());
-    // match size {
-    //     3 => do_it::<3>(server_notation),
-    //     4 => do_it::<4>(server_notation),
-    //     5 => do_it::<5>(server_notation),
-    //     6 => do_it::<6>(server_notation),
-    //     7 => do_it::<7>(server_notation),
-    //     8 => do_it::<8>(server_notation),
-    //     s => panic!("Unsupported size {}", s),
-    // };
-
-    // println!("Enter move notation as a simple list: ");
-    // println!("Example input: d3 e3 d1 d2 c1 e1 Ce2 Cc2 a3 1c2>1 a4 d4 b4 c3 c5 d5 c4");
-    // let mut input = String::new();
-    // io::stdin().read_line(&mut input).unwrap();
-    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3- e3"; // d2";
-    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11 e3-"; // e3"; // d2";
-    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
-
-    // let mut position = <Board<5>>::start_board();
-    // for move_string in input.split_whitespace() {
-    //     let mv = position.move_from_san(move_string).unwrap();
-    //     position.do_move(mv);
-    // }
-
-    // println!("Tinue 1 moves: ");
-    // for mvs in win_in_one(&mut position) {
-    //     for mv in mvs {
-    //         println!(" {}, ", position.move_to_san(&mv));
-    //     }
-    // }
-
-    // input contains a road with tinue at least for the last 3 plies
-    // let input = "a1 e1 e2 a4 e3 d3 e4 e5 d5 e5- Cd4 c1 e3< 2e4-11"; // e3-"; // e3"; // d2";
-    //                                                                 // https://ptn.ninja/NoZQlgXgpgBARAVjgXQLAChRgC6zgB2wDsA6IsIgKwEMUNgARa3eAJgAZWBGEzkrgOx1MAFTABbPBwBcXABzSEQtJgBKUAM4BXADbZ4qgLTthGHjGoIYAIwAsGViRgBjAMw2EGV04Amtl-botk4gPu4Awj6e6AhOUO5Q0QBsTuFQ-lGGGAK+rBasGHJO1FwuBegAnE7WeT5cZuzVpXUA1Gbm1lwtZQA8Zo42CeVc3oOGLtFcwTaliX3oXLEWXTBRAHxmKcswUKxZCzk2tt0g1q5mRTC2NWtcXHlQXWZVO67jIM716BzVeUbsQA&name=KwD2AIAoCYEog&ply=38!
-    //                                                                 // Tinue starts here (7 ply deep)
-
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
-    let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
-    let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3,"; // M C5 F5 2 2 2,M E4 E5 4,M C5 E5 1 1,M E3 D3 3,M A5 C5 1 3";
-    let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3, P B5";
-    let plies_till_tinue = 4;
-    let mut position = <Board<6>>::start_board();
-    // for move_string in input.split_whitespace() {
-    //     println!("INIT MV {}", move_string);
-    //     let mv = position.move_from_san(move_string).unwrap();
+    // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
+    // let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3,"; // M C5 F5 2 2 2,M E4 E5 4,M C5 E5 1 1,M E3 D3 3,M A5 C5 1 3";
+    // let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3, P B5";
+    // let plies_till_tinue = 4;
+    // let mut position = <Board<6>>::start_board();
+    // // for move_string in input.split_whitespace() {
+    // //     println!("INIT MV {}", move_string);
+    // //     let mv = position.move_from_san(move_string).unwrap();
+    // //     position.do_move(mv);
+    // // }
+    // for mv in parse_server_notation::<6>(input) {
     //     position.do_move(mv);
     // }
-    for mv in parse_server_notation::<6>(input) {
-        position.do_move(mv);
-    }
-    let me = Color::White; // position.side_to_move();
-    println!("\n// Tinue in up to {} plies as {}: ", plies_till_tinue, me);
-    let winning_moves = win_in_n(&mut position, plies_till_tinue, me, false);
+    // let me = Color::White; // position.side_to_move();
+    // println!("\n// Tinue in up to {} plies as {}: ", plies_till_tinue, me);
+    // let winning_moves = win_in_n(&mut position, plies_till_tinue, me, false);
 
-    print_tinue_moves_json(&winning_moves);
-    println!(
-        "{}",
-        serde_json::to_string(&tinuemove_to_options(&winning_moves)).unwrap()
-    );
+    // println!(
+    //     "{}",
+    //     serde_json::to_string(&tinuemove_to_options(&winning_moves)).unwrap()
+    // );
 }
 
 type Mov = String;
@@ -531,34 +484,6 @@ struct TinueMove {
     mv: Mov,
     /// When `mv` is played, any of these responses will stay on the **Road to Tinue**
     next: Option<Vec<TinueMove>>,
-}
-
-/// Prints `TinueMove`s as a JSON object.
-/// ### Example
-/// ```
-/// {
-/// "b4+": {
-///   "4b2<": {
-///     "a5": { "4a2+112": {}, },
-///     "Sa5": { "5a2>1112": {}, },
-/// ...
-/// ```
-fn print_tinue_moves_json(moves: &Vec<TinueMove>) {
-    fn print_tinue_move(mv: &TinueMove, depth: usize) {
-        println!("{}\"{}\": {{", "  ".repeat(depth), mv.mv);
-        if let Some(next) = &mv.next {
-            for next_move in next {
-                print_tinue_move(&next_move, depth + 1);
-            }
-        }
-        println!("{}}},", "  ".repeat(depth))
-    }
-
-    println!("{{");
-    for mv in moves {
-        print_tinue_move(mv, 1);
-    }
-    println!("}}");
 }
 
 struct IDDFSResult<T> {
