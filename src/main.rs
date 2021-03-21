@@ -134,17 +134,24 @@ fn handle_game(
         find_only_one_tinue,
     );
     let actual_depth = moves.as_ref().map(|x| x.depth).unwrap_or(0);
-    // These move_options include a first move from `me` and then answers to all possible replies from `opponent`
-    // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
-    // a single example of a Tinue (the longest one available) in the move_options below
-    // let move_options = moves.as_ref().map(|mvs| tinuemove_to_options(&mvs.result));
-    let move_options = moves.map(|IDDFSResult { depth: _, result }| {
-        result
-            .first()
-            .map(|m| move_list_to_vec(get_longest_sequence(m).1))
-    });
 
-    let json_string = serde_json::to_string(&move_options).unwrap();
+    // moves include a first move from `me` and then answers to all possible replies from `opponent`
+    // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
+    // a single example of a Tinue (the longest one available) in the move_options below if find_only_one_tinue
+    let json_string = match find_only_one_tinue {
+        true => {
+            let move_options = moves.map(|IDDFSResult { depth: _, result }| {
+                result
+                    .first()
+                    .map(|m| move_list_to_vec(get_longest_sequence(m).1))
+            });
+            serde_json::to_string(&move_options).unwrap()
+        }
+        false => {
+            let move_options = moves.as_ref().map(|mvs| tinuemove_to_options(&mvs.result));
+            serde_json::to_string(&move_options).unwrap()
+        }
+    };
 
     let time_taken = timer.elapsed().as_millis();
     println!(
@@ -234,6 +241,13 @@ fn main() {
                 .default_value("1"),
         )
         .arg(
+            Arg::with_name("multi_tinue")
+                .short("m")
+                .long("multi-tinue")
+                .help("Searches for all available tinues and how to handle all possible opponent replies. Increases computation time and output data massively.")
+                .required(false)
+        )
+        .arg(
             Arg::with_name("test")
                 .short("t")
                 .long("test")
@@ -253,8 +267,7 @@ fn main() {
     let min_game_id = get_arg_number("start_id");
     let db_path = matches.value_of("database").unwrap();
     let test = matches.occurrences_of("test") > 0;
-
-    let find_only_one_tinue = true;
+    let multi_tinue = matches.occurrences_of("multi_tinue") > 0;
 
     if max_depth % 2 != 1 {
         panic!("max_depth must be an odd number as it represents the number of plies looked ahead. An even number would mean that your opponent does the final ply");
@@ -268,6 +281,7 @@ fn main() {
     let number_of_threads = number_of_threads as usize;
 
     println!("Test={}", test);
+    println!("multi_tinue={}", multi_tinue);
     println!("board_size={}", board_size);
     println!("plies_to_undo={}", plies_to_undo);
     println!("max_depth={}", max_depth);
@@ -322,7 +336,7 @@ fn main() {
             let conn_arc = Arc::clone(&conn_mtx);
             scope.spawn_fifo(move |_| {
                 println!("# Processing game #{}", game.id);
-                handle_game(&game, max_depth, plies_to_undo, find_only_one_tinue).and_then(|r| {
+                handle_game(&game, max_depth, plies_to_undo, !multi_tinue).and_then(|r| {
                     if test {
                         return None;
                     }
@@ -395,15 +409,21 @@ fn main() {
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
     let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-"; // b4+ Sb3";// 4b2>112 e1+ e3- Sc1 b2";
-    let plies_till_tinue = 5;
-    let mut position = <Board<5>>::start_board();
-    for move_string in input.split_whitespace() {
-        let mv = position.move_from_san(move_string).unwrap();
+    let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3,"; // M C5 F5 2 2 2,M E4 E5 4,M C5 E5 1 1,M E3 D3 3,M A5 C5 1 3";
+    let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3, P B5";
+    let plies_till_tinue = 4;
+    let mut position = <Board<6>>::start_board();
+    // for move_string in input.split_whitespace() {
+    //     println!("INIT MV {}", move_string);
+    //     let mv = position.move_from_san(move_string).unwrap();
+    //     position.do_move(mv);
+    // }
+    for mv in parse_server_notation::<6>(input) {
         position.do_move(mv);
     }
     let me = Color::White; // position.side_to_move();
     println!("\n// Tinue in up to {} plies as {}: ", plies_till_tinue, me);
-    let winning_moves = win_in_n(&mut position, plies_till_tinue, me, true);
+    let winning_moves = win_in_n(&mut position, plies_till_tinue, me, false);
 
     print_tinue_moves_json(&winning_moves);
     println!(
@@ -629,10 +649,18 @@ fn win_in_n<const S: usize>(
                     })
                 }
             } else {
+                position.reverse_move(reverse_move);
+
+                if result == GameResult::WhiteWin && me == Color::White
+                    || result == GameResult::BlackWin && me == Color::Black
+                {
+                    // Win for me, but given to me by the opponent
+                    continue;
+                }
+
                 // Early loss or draw
                 // TODO: Actually, this could be an early road/flatwin if that's the only possible enemy move
                 //       So we should add checks for that
-                position.reverse_move(reverse_move);
                 return vec![];
             }
         } else if depth > 1 {
