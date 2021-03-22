@@ -7,7 +7,6 @@ use rayon::current_thread_index;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
-use serde_json;
 use std::sync::{Arc, Mutex};
 use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
@@ -79,7 +78,7 @@ pub fn parse_move<const S: usize>(input: &str) -> board::Move {
 }
 
 fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
-    let move_splits = server_notation.split(",");
+    let move_splits = server_notation.split(',');
     move_splits.map(parse_move::<S>).collect()
 }
 
@@ -98,7 +97,7 @@ fn do_it<const S: usize>(
 
     let active_color = position.side_to_move();
 
-    return iddf_tinue_search(&mut position, depth, active_color, find_only_one_tinue);
+    iddf_tinue_search(&mut position, depth, active_color, find_only_one_tinue)
 }
 
 fn do_it_sized(
@@ -355,8 +354,6 @@ fn main() {
         }
     });
 
-    return;
-
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2-";
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3 4b2>112 e1+ e3- Sc1 b2";
     // let input = "a5 b4 c3 b5 d4 c4 Sd3 Cd5 e3 e5 Ce4 d5- d2 a2 a1 c2 b2 d1 b1 d1+ b1+ c2< b3 e2 b3- c5 b1 e5< a1+ d5> a1 e2- b4+ Sb3"; // 4b2>112 e1+ e3- Sc1 b2";
@@ -402,16 +399,13 @@ struct TinueMoveOptions {
 }
 
 /// Reduces `TinueMove`s to `TinueMoveOption`s
-fn tinuemove_to_options(tmvs: &Vec<TinueMove>) -> Vec<TinueMoveOptions> {
+fn tinuemove_to_options(tmvs: &[TinueMove]) -> Vec<TinueMoveOptions> {
     let trs: Vec<(Mov, Option<Vec<TinueMoveOptions>>)> = tmvs
         .iter()
         .map(|tm| {
             (
                 tm.mv.clone(),
-                match &tm.next {
-                    Some(next) => Some(tinuemove_to_options(&next)),
-                    None => None,
-                },
+                tm.next.as_ref().map(|next| tinuemove_to_options(&next)),
             )
         })
         .collect();
@@ -426,7 +420,7 @@ fn tinuemove_to_options(tmvs: &Vec<TinueMove>) -> Vec<TinueMoveOptions> {
                 .collect::<Vec<String>>(),
             solutions: match group.first() {
                 None => vec![],
-                Some((_, solution)) => solution.clone().unwrap_or(vec![]),
+                Some((_, solution)) => solution.clone().unwrap_or_default(),
             },
         })
         .collect()
@@ -467,13 +461,13 @@ fn get_longest_sequence(tinue_move: &TinueMove) -> (usize, MoveListNode) {
         }
     }
 
-    return (
+    (
         1,
         MoveListNode {
             mv: tinue_move.mv.clone(),
             next: None,
         },
-    );
+    )
 }
 
 /// Represents a `Move` on the **Road to Tinue** and possible responses (`next`)
@@ -498,7 +492,7 @@ fn iddf_tinue_search<const S: usize>(
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     for depth in (1..(max_depth + 1)).step_by(2) {
         let result = win_in_n(position, depth, me, find_only_one_tinue);
-        if result.len() > 0 {
+        if !result.is_empty() {
             return Some(IDDFSResult { depth, result });
         }
     }
@@ -517,7 +511,7 @@ fn iddf_win_in_n<const S: usize>(
 ) -> Vec<TinueMove> {
     for depth in 1..(max_depth + 1) {
         let result = win_in_n(position, depth, me, find_only_one_tinue);
-        if result.len() > 0 {
+        if !result.is_empty() {
             return result;
         }
     }
