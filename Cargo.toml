@@ -5,9 +5,6 @@ version = "0.1.0"
 authors = ["Jan Schnitker <jan.s.92@web.de>", "Morten Lohne <lohnemorten@gmail.com>"]
 edition = "2018"
 
-[profile.release]
-lto = "fat"
-
 [dependencies]
 tiltak = { git = "https://github.com/MortenLohne/tiltak", branch = "master" }
 board-game-traits = "0.2"
