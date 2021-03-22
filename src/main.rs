@@ -3,6 +3,7 @@ use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
 use clap::{App, Arg};
 use pgn_traits::pgn::PgnBoard;
+use rayon::current_thread_index;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
@@ -163,7 +164,7 @@ fn handle_game(
     match actual_depth {
         0 | 1 => None, // Ignore no wins and  immediate wins
         _ => Some(TinueGameRow {
-            plies_to_undo: plies_to_undo,
+            plies_to_undo,
             gameid: game.id,
             tinue: json_string,
             size: game.size,
@@ -335,7 +336,7 @@ fn main() {
         for game in gamerows.iter() {
             let conn_arc = Arc::clone(&conn_mtx);
             scope.spawn_fifo(move |_| {
-                println!("// Processing game #{}", game.id);
+                println!("// Thread #{} Processing game #{}", current_thread_index().unwrap(), game.id);
                 handle_game(&game, max_depth, plies_to_undo, !multi_tinue).and_then(|r| {
                     if test {
                         return None;
