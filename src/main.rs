@@ -297,28 +297,23 @@ fn main() {
         .unwrap();
 
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
-    let conn_mtx: Arc<Mutex<Connection>> = Arc::new(Mutex::new(conn));
 
     if !test {
-        conn_mtx
-            .lock()
-            .unwrap()
-            .execute(
-                "CREATE TABLE IF NOT EXISTS tinues (
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tinues (
         id integer primary key,
         gameid integer NOT NULL REFERENCES games(id),
         size integer,
         plies_to_undo integer,
         tinue_depth integer,
         tinue TEXT)",
-                params![],
-            )
-            .unwrap();
+            params![],
+        )
+        .unwrap();
     }
 
-    // use lambda function here to scope and drop `conn` MutexGuard - otherwhise it will hold the lock forever.
-    let gamerows = (|| {
-        let conn = conn_mtx.lock().unwrap();
+    // Do this step in its own block because `stmt` needs to go out of scope before we can take ownership of `conn` again
+    let gamerows = {
         let mut stmt = conn.prepare("SELECT id, notation, result, size FROM games WHERE (result = ? or result = ?) and id > ? AND size = ?")
             .unwrap();
 
@@ -333,8 +328,9 @@ fn main() {
         .unwrap()
         .map(|r| r.unwrap())
         .collect::<Vec<GameRow>>()
-    })();
+    };
 
+    let conn_mtx: Arc<Mutex<Connection>> = Arc::new(Mutex::new(conn));
     rayon::scope_fifo(|scope| {
         for game in gamerows.iter() {
             let conn_arc = Arc::clone(&conn_mtx);
