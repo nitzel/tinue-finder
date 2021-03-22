@@ -5,10 +5,13 @@ version = "0.1.0"
 authors = ["Jan Schnitker <jan.s.92@web.de>", "Morten Lohne <lohnemorten@gmail.com>"]
 edition = "2018"
 
+[profile.release]
+lto = "fat"
+
 [dependencies]
-taik = { git = "https://github.com/MortenLohne/taik", branch = "f-generic-size" }
-board-game-traits = "0.1"
-pgn-traits = "0.1.1"
+tiltak = { git = "https://github.com/MortenLohne/tiltak", branch = "master" }
+board-game-traits = "0.2"
+pgn-traits = "0.2.2"
 arrayvec = "0.5.1"
 serde = { version = "1.0.101", features = ["derive"] }
 serde_json = "1.0.40"
