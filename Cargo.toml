@@ -21,5 +21,5 @@ features = ["bundled"] # necessary for windows
 
 [profile.release]
 # https://nnethercote.github.io/perf-book/build-configuration.html
-codegen-units = 1 # no parallelization during compilation but better optimization
-lto = true # enable link time optimizations
+# codegen-units = 1 # no parallelization during compilation but better optimization
+lto = "fat" # enable link time optimizations
