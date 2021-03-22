@@ -1,8 +1,8 @@
 #![feature(slice_group_by)]
 use arrayvec::ArrayVec;
-use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
+use board_game_traits::{Color, GameResult, Position as PositionTrait};
 use clap::{App, Arg};
-use pgn_traits::pgn::PgnBoard;
+use pgn_traits::PgnPosition;
 use rayon::current_thread_index;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
@@ -11,8 +11,8 @@ use serde_json;
 use std::sync::{Arc, Mutex};
 use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
-use taik::board::TunableBoard;
-use taik::{
+use tiltak::board::TunableBoard;
+use tiltak::{
     board,
     board::{Board, Direction, Move, Movement, Role, StackMovement},
 };
@@ -91,7 +91,7 @@ fn do_it<const S: usize>(
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
-    let mut position = Board::<S>::start_board();
+    let mut position = Board::<S>::start_position();
     for ply in moves.iter().take(moves.len() - plies_to_undo as usize) {
         position.do_move(ply.clone());
     }
@@ -364,7 +364,7 @@ fn main() {
     // let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3,"; // M C5 F5 2 2 2,M E4 E5 4,M C5 E5 1 1,M E3 D3 3,M A5 C5 1 3";
     // let input = "P A1,P D4,P D3,P E5,P D2,P B2,P D1,P A4,P D5,P D6,P C6,M E5 D5 1,M D4 D5 1,M D6 D5 1,P D6,M D5 D3 2 2,P D5,P B4,P C4,M D4 C4 2,P D4,M D3 D4 3,P D3,M D4 D3 4,M D2 D3 1,P B3 C,P D2,P D4 W,P C3 C,M D4 D3 1,M C3 D3 1,P D4 W,M D3 D4 1,M D3 D2 2,P E3,M D3 E3 5,P D3,M D2 D3 3,P D2,P A5,P A6 W,M D3 D2 4,P D3,M D2 D3 5,P D2,M D3 D2 6,M D4 D2 1 1,P D4 W,M D2 D4 5 1,M D3 D1 1 5,P D3,M D2 D3 3,P E5,P D2,P F3 W,P C1,M F3 E3 1,P C3 W,M E3 D3 6,M D1 E1 6,M D3 D1 1 4,M C3 D3 1,M D4 D3 1,P C3,P E4,M D4 D5 1,M E5 D5 1,P D4,M D1 E1 3,M C1 D1 1,M E1 E6 1 1 2 1 1,M D1 E1 2,M D5 F5 1 2,M D4 E4 1,M E3 E4 1,M C4 E4 1 2,M E5 E4 2,P C4 W,P D5,M C4 D4 1,M D3 D1 1 5,M E1 E3 1 3,M E2 E3 1,M D4 D6 1 1,M E4 A4 2 1 2 1,M B4 E4 1 1 1,M E3 E5 1 3,M D4 E4 2,M D5 D4 1,M E4 D4 3,P C5,M E4 E2 2 2,P B5,M D4 D5 4,M E5 D5 2,M D6 D5 2,M A4 A5 2,M D5 F5 1 3,M D1 D5 1 2 1 1,M C4 C5 2,M C6 C5 1,P B1,M D3 D4 3,P E4,M D5 E5 5,M E4 D4 1,M D2 D5 2 1 1,P E4 W,M E5 F5 1,M E5 A5 1 1 1 3,M D5 A5 1 1 1,P D5 W,M F5 D5 3 1,M E4 D4 1,M D5 D4 1,M D5 C5 1,M B5 E5 1 1 1,M E3 E5 1 2,P F4,M E5 E3 3 3, P B5";
     // let plies_till_tinue = 4;
-    // let mut position = <Board<6>>::start_board();
+    // let mut position = <Board<6>>::start_position();
     // // for move_string in input.split_whitespace() {
     // //     println!("INIT MV {}", move_string);
     // //     let mv = position.move_from_san(move_string).unwrap();
