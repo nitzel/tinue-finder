@@ -3,11 +3,12 @@ use arrayvec::ArrayVec;
 use board_game_traits::board::{Board as BoardTrait, Color, GameResult};
 use clap::{App, Arg};
 use pgn_traits::pgn::PgnBoard;
+use rayon::prelude::*;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
 use serde_json;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
 use taik::{
@@ -296,7 +297,7 @@ fn main() {
         .unwrap();
 
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
-    let conn_mtx: Arc<Mutex<Connection>> = Arc::new(Mutex::new(conn));
+    let conn_mtx: Mutex<Connection> = Mutex::new(conn);
 
     if !test {
         conn_mtx
@@ -334,26 +335,19 @@ fn main() {
         .collect::<Vec<GameRow>>()
     })();
 
-    rayon::scope_fifo(|scope| {
-        for game in gamerows.iter() {
-            let conn_arc = Arc::clone(&conn_mtx);
-            scope.spawn_fifo(move |_| {
-                println!("// Processing game #{}", game.id);
-                handle_game(&game, max_depth, plies_to_undo, !multi_tinue).and_then(|r| {
-                    if test {
-                        return None;
-                    }
-
-                    let local_conn = conn_arc.lock().unwrap();
-                    Some(local_conn.execute("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)", 
-                        params![
-                            r.gameid,
-                            r.size,
-                            r.plies_to_undo,
-                            r.tinue_depth,
-                            r.tinue]).unwrap())
-                });
-            });
+    gamerows.par_iter().for_each(|game| {
+        println!("// Processing game #{}", game.id);
+        if let Some(r) = handle_game(&game, max_depth, plies_to_undo, !multi_tinue) {
+            if !test {
+                let local_conn = conn_mtx.lock().unwrap();
+                local_conn.execute("INSERT INTO tinues(gameid, size, plies_to_undo, tinue_depth, tinue) VALUES(?, ?, ?, ?, ?)",
+                                        params![
+                    r.gameid,
+                    r.size,
+                    r.plies_to_undo,
+                    r.tinue_depth,
+                    r.tinue]).unwrap();
+            }
         }
     });
 
