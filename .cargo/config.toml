@@ -1,0 +1,3 @@
+# https://doc.rust-lang.org/cargo/reference/config.html
+[build]
+rustflags = ["-C", "target-cpu=native"] # Built version will be less compatible with other CPUs!
