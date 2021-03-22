@@ -563,6 +563,20 @@ fn win_in_n<const S: usize>(
     let my_turn = position.side_to_move() == me;
 
     for (mv, _score) in moves_with_heuristic_scores {
+        // Skip wall placements in my last and second-last move of the Tinue.
+        // Reason on last move: If placing a wall wins the game, placing a flat does so as well.
+        // Reason on second last move: If I can win after placing a wall, then I can win now as well.
+        //    NB: Except that is only true for road wins: Placing a wall may stop an opponent threat and placing afterwards
+        //    would then yield a win by flats or board fill.
+        //    I have discussed this with Morten and the likelyhood for board-fills like that is so small it's not worth correctly
+        //    implementing or sacrificing performance over at the moment, especially since only R-0 and 0-R games are analyzed.
+        //    The following would improve the correctness slightly. Maybe capstone count should be considered as well.
+        //      && ((me == Color::White && position.white_reserves_left() > 2)
+        //      || (me == Color::Black && position.black_reserves_left() > 2))
+        if my_turn && depth <= 3 && matches!(mv, Move::Place(Role::Wall, _)) {
+            continue;
+        }
+
         let reverse_move = position.do_move(mv.clone());
         if let Some(result) = position.game_result() {
             // Early win or loss
