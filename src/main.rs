@@ -16,6 +16,9 @@ use tiltak::{
     board::{Board, Direction, Move, Movement, Role, StackMovement},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub fn parse_move<const S: usize>(input: &str) -> board::Move {
     let words: Vec<&str> = input.split_whitespace().collect();
     if words[0] == "P" {
@@ -472,19 +475,19 @@ fn get_longest_sequence(tinue_move: &TinueMove) -> (usize, MoveListNode) {
 
 /// Represents a `Move` on the **Road to Tinue** and possible responses (`next`)
 #[derive(Debug)]
-struct TinueMove {
+pub struct TinueMove {
     mv: Mov,
     /// When `mv` is played, any of these responses will stay on the **Road to Tinue**
     next: Option<Vec<TinueMove>>,
 }
 
-struct IDDFSResult<T> {
+pub struct IDDFSResult<T> {
     depth: u32,
     result: T,
 }
 
 /// Returns the resulting tinue and the maximum length of it
-fn iddf_tinue_search<const S: usize>(
+pub fn iddf_tinue_search<const S: usize>(
     position: &mut Board<S>,
     max_depth: u32,
     me: Color,
