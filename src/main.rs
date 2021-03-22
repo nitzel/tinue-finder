@@ -10,6 +10,7 @@ use serde_json;
 use std::sync::{Arc, Mutex};
 use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
+use taik::board::TunableBoard;
 use taik::{
     board,
     board::{Board, Direction, Move, Movement, Role, StackMovement},
@@ -549,11 +550,21 @@ fn win_in_n<const S: usize>(
     let mut legal_moves = vec![];
     let mut tinue_moves = vec![];
 
-    position.generate_moves(&mut legal_moves);
+    let mut moves_with_heuristic_scores = vec![];
+
+    position.generate_moves_with_probabilities(
+        &position.group_data(),
+        &mut legal_moves,
+        &mut moves_with_heuristic_scores,
+    );
+
+    // Sort the moves using Tiltak's heuristic
+    // Checking the best moves first gives a ~35% speedup for depth 5
+    moves_with_heuristic_scores.sort_by_key(|(_mv, score)| 0 - (score * 1024.0) as i64);
 
     let my_turn = position.side_to_move() == me;
 
-    for mv in legal_moves {
+    for (mv, _score) in moves_with_heuristic_scores {
         let reverse_move = position.do_move(mv.clone());
         if let Some(result) = position.game_result() {
             // Early win or loss
