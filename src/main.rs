@@ -560,7 +560,8 @@ fn win_in_n<const S: usize>(
 
     // Sort the moves using Tiltak's heuristic
     // Checking the best moves first gives a ~35% speedup for depth 5
-    moves_with_heuristic_scores.sort_by_key(|(_mv, score)| 0 - (score * 1024.0) as i64);
+    moves_with_heuristic_scores
+        .sort_unstable_by(|(_, score1), (_, score2)| score1.partial_cmp(score2).unwrap().reverse());
 
     let my_turn = position.side_to_move() == me;
 
