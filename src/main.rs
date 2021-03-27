@@ -1,5 +1,4 @@
 #![feature(slice_group_by)]
-use arrayvec::ArrayVec;
 use board_game_traits::{Color, GameResult, Position as PositionTrait};
 use clap::{App, Arg};
 use pgn_traits::PgnPosition;
@@ -8,81 +7,15 @@ use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
 use serde::Serialize;
 use std::sync::{Arc, Mutex};
-use std::{cmp::Ordering, iter, str::FromStr};
 use std::{time::Instant, usize};
-use tiltak::board::TunableBoard;
-use tiltak::{
-    board,
-    board::{Board, Direction, Move, Movement, Role, StackMovement},
-};
+use tiltak::position::{Move, Position, Role, TunableBoard};
 
 #[cfg(test)]
 mod tests;
 
-pub fn parse_move<const S: usize>(input: &str) -> board::Move {
-    let words: Vec<&str> = input.split_whitespace().collect();
-    if words[0] == "P" {
-        let square = board::Square::parse_square::<S>(&words[1].to_lowercase()).unwrap();
-        let role = match words.get(2) {
-            Some(&"C") => Role::Cap,
-            Some(&"W") => Role::Wall,
-            None => Role::Flat,
-            Some(s) => panic!("Unknown role {} for move {}", s, input),
-        };
-        board::Move::Place(role, square)
-    } else if words[0] == "M" {
-        let start_square = board::Square::parse_square::<S>(&words[1].to_lowercase()).unwrap();
-        let end_square = board::Square::parse_square::<S>(&words[2].to_lowercase()).unwrap();
-        let pieces_dropped: ArrayVec<[u8; board::MAX_BOARD_SIZE - 1]> = words
-            .iter()
-            .skip(3)
-            .map(|s| u8::from_str(s).unwrap())
-            .collect();
-
-        let num_pieces_taken: u8 = pieces_dropped.iter().sum();
-
-        let mut pieces_held = num_pieces_taken;
-
-        let pieces_taken: ArrayVec<[Movement; board::MAX_BOARD_SIZE - 1]> =
-            iter::once(num_pieces_taken)
-                .chain(
-                    pieces_dropped
-                        .iter()
-                        .take(pieces_dropped.len() - 1)
-                        .map(|pieces_to_drop| {
-                            pieces_held -= pieces_to_drop;
-                            pieces_held
-                        }),
-                )
-                .map(|pieces_to_take| Movement { pieces_to_take })
-                .collect();
-
-        let direction = match (
-            start_square.rank::<S>().cmp(&end_square.rank::<S>()),
-            start_square.file::<S>().cmp(&end_square.file::<S>()),
-        ) {
-            (Ordering::Equal, Ordering::Less) => Direction::East,
-            (Ordering::Equal, Ordering::Greater) => Direction::West,
-            (Ordering::Less, Ordering::Equal) => Direction::South,
-            (Ordering::Greater, Ordering::Equal) => Direction::North,
-            _ => panic!("Diagonal move string {}", input),
-        };
-
-        board::Move::Move(
-            start_square,
-            direction,
-            StackMovement {
-                movements: pieces_taken,
-            },
-        )
-    } else {
-        unreachable!()
-    }
-}
-
 fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
     let move_splits = server_notation.split(',');
-    move_splits.map(parse_move::<S>).collect()
+    move_splits.map(Move::from_string_playtak::<S>).collect()
 }
 
 fn do_it<const S: usize>(
@@ -93,7 +26,7 @@ fn do_it<const S: usize>(
 ) -> Option<IDDFSResult<Vec<TinueMove>>> {
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
-    let mut position = Board::<S>::start_position();
+    let mut position = Position::<S>::start_position();
     for ply in moves.iter().take(moves.len() - plies_to_undo as usize) {
         position.do_move(ply.clone());
     }
@@ -488,7 +421,7 @@ pub struct IDDFSResult<T> {
 
 /// Returns the resulting tinue and the maximum length of it
 pub fn iddf_tinue_search<const S: usize>(
-    position: &mut Board<S>,
+    position: &mut Position<S>,
     max_depth: u32,
     me: Color,
     find_only_one_tinue: bool,
@@ -507,7 +440,7 @@ pub fn iddf_tinue_search<const S: usize>(
 /// thus removing Tinues drawn in the length by both players making moves
 /// that don't affect the Tinue.
 fn iddf_win_in_n<const S: usize>(
-    position: &mut Board<S>,
+    position: &mut Position<S>,
     max_depth: u32,
     me: Color,
     find_only_one_tinue: bool,
@@ -536,7 +469,7 @@ fn iddf_win_in_n<const S: usize>(
 /// This method becomes very slow very quickly. `depth=5`, maybe `7` is recommended.
 /// Best to set `find_only_one_tinue=true`.
 fn win_in_n<const S: usize>(
-    position: &mut Board<S>,
+    position: &mut Position<S>,
     depth: u32,
     me: Color,
     find_only_one_tinue: bool,
