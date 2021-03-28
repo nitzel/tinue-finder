@@ -98,8 +98,6 @@ fn handle_game(
         game.id, game.size, game.result, max_depth, actual_depth, plies_to_undo, time_taken, json_string
     );
 
-    let negamax_start_time = Instant::now();
-
     let moves = parse_server_notation::<5>(&game.notation);
     // Apply moves
     let mut position = Position::<5>::start_position();
@@ -109,6 +107,8 @@ fn handle_game(
     }
 
     println!();
+
+    let negamax_start_time = Instant::now();
 
     let negamax_result = alpha_beta::alpha_beta(
         &mut position,
@@ -121,6 +121,16 @@ fn handle_game(
         "Got negamax result {:?} in {:.1}s",
         negamax_result,
         negamax_start_time.elapsed().as_secs_f64()
+    );
+
+    let unique_start_time = Instant::now();
+
+    let unique_result = alpha_beta::find_unique_tinue(&mut position, max_depth);
+
+    println!(
+        "Got unique result {:?} in {:.1}s",
+        unique_result.map(|(mv, depth)| format!("{}, depth {}", mv.to_string::<5>(), depth)),
+        unique_start_time.elapsed().as_secs_f64()
     );
 
     match actual_depth {
