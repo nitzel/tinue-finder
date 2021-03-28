@@ -1,7 +1,7 @@
 use crate::alpha_beta::NodeValue::*;
 use board_game_traits::{Color::*, GameResult::*, Position as PositionTrait};
 use std::cmp::Ordering;
-use tiltak::position::{Position, TunableBoard};
+use tiltak::position::{Move, Position, TunableBoard};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum NodeValue {
@@ -51,6 +51,29 @@ impl NodeValue {
     }
 }
 
+pub fn generate_sorted_moves<const S: usize>(position: &Position<S>) -> Vec<(Move, f32)> {
+    let mut moves = vec![];
+    let mut moves_with_heuristic_scores = vec![];
+
+    position.generate_moves_with_probabilities(
+        &position.group_data(),
+        &mut moves,
+        &mut moves_with_heuristic_scores,
+    );
+
+    // Sort the moves using Tiltak's heuristic
+    // Checking the best moves first gives a ~35% speedup for depth 5
+    moves_with_heuristic_scores
+        .sort_unstable_by(|(_, score1), (_, score2)| score1.partial_cmp(score2).unwrap().reverse());
+    moves_with_heuristic_scores
+}
+
+/// The core alpha-beta function. Search for any tinue up to `depth`, within the `alpha` and `beta` bounds.
+///
+/// # Arguments
+///
+/// * `alpha` A lower bound on the result. We already know that we can achieve this score, so we will not look for lines that cannot improve on this
+/// * `beta` An upper bound on the result. We already know that we cannot do better than this, so we will not look for lines that improve on this
 pub fn alpha_beta<const S: usize>(
     position: &mut Position<S>,
     depth: u32,
@@ -67,19 +90,7 @@ pub fn alpha_beta<const S: usize>(
             _ => Unknown,
         }
     } else {
-        let mut moves = vec![];
-        let mut moves_with_heuristic_scores = vec![];
-
-        position.generate_moves_with_probabilities(
-            &position.group_data(),
-            &mut moves,
-            &mut moves_with_heuristic_scores,
-        );
-
-        // Sort the moves using Tiltak's heuristic
-        // Checking the best moves first gives a ~35% speedup for depth 5
-        moves_with_heuristic_scores
-            .sort_unstable_by(|(_, score1), (_, score2)| score1.partial_cmp(score2).unwrap().reverse());
+        let moves_with_heuristic_scores = generate_sorted_moves(position);
 
         let mut value = NodeValue::MIN_VALUE;
         for (mv, _score) in moves_with_heuristic_scores {
@@ -101,4 +112,59 @@ pub fn alpha_beta<const S: usize>(
         }
         value
     }
+}
+
+enum TinueResult {
+    None,
+    Tinue(Move),
+    Multiple,
+}
+
+/// Returns a tinue move for a certain depth *if it is unique*
+/// Returns `TinueResult::None` if no tinue is found, `TinueResult::Multiple` if many are found
+fn find_unique_tinue_for_depth<const S: usize>(
+    position: &mut Position<S>,
+    depth: u32,
+) -> TinueResult {
+    let moves = generate_sorted_moves(position);
+    let mut tinue_move: Option<Move> = None;
+    for (mv, _score) in moves {
+        let reverse_move = position.do_move(mv.clone());
+        let result = alpha_beta(
+            position,
+            depth - 1,
+            NodeValue::WinInPly(0).propagate_down(),
+            NodeValue::WinInPly(depth + 1).propagate_down(),
+        );
+        if matches!(result, LossInPly(_)) {
+            if tinue_move.is_some() {
+                return TinueResult::Multiple;
+            } else {
+                tinue_move = Some(mv);
+            }
+        }
+        position.reverse_move(reverse_move);
+    }
+    if let Some(mv) = tinue_move {
+        TinueResult::Tinue(mv)
+    } else {
+        TinueResult::None
+    }
+}
+
+/// Returns a tinue move and a depth, if the move is unique at that depth
+/// If multiple tinue moves are found at a certain depth, returns `None`.
+/// If no tinue moves are found at any depth, returns `None`
+pub fn find_unique_tinue<const S: usize>(
+    position: &mut Position<S>,
+    max_depth: u32,
+) -> Option<(Move, u32)> {
+    for depth in 1..=max_depth {
+        match find_unique_tinue_for_depth(position, depth) {
+            TinueResult::None => continue,
+            TinueResult::Tinue(mv) => return Some((mv, depth)),
+            TinueResult::Multiple => return None,
+        }
+    }
+    None
 }
