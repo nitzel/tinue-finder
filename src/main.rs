@@ -1,6 +1,7 @@
 #![feature(slice_group_by)]
 use board_game_traits::Position as PositionTrait;
 use clap::{App, Arg};
+use pgn_traits::PgnPosition;
 use rayon::current_thread_index;
 use rusqlite::Connection;
 use rusqlite::{params, OpenFlags};
@@ -30,7 +31,7 @@ fn find_unique_tinue_sized<const S: usize>(
         print!("{} ", ply.to_string::<S>());
         position.do_move(ply.clone());
     }
-    println!();
+    println!("TPS {}", position.to_fen());
 
     alpha_beta::find_unique_tinue::<S>(&mut position, depth)
 }
