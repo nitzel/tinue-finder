@@ -1,5 +1,4 @@
-use crate::alpha_beta::{alpha_beta, NodeValue};
-use crate::iddf_tinue_search;
+use crate::alpha_beta::find_unique_tinue;
 use board_game_traits::Position as PositionTrait;
 use pgn_traits::PgnPosition;
 use tiltak::position::{Move, Position};
@@ -25,22 +24,8 @@ fn run_tinue_test<const S: usize>(depth: u32, move_strings: &[&str], answer_move
     position.generate_moves(&mut legal_moves);
     assert!(legal_moves.contains(&answer_move));
 
-    let side_to_move = position.side_to_move();
-
-    // Check that there is no tinue on depth - 2
-    let shallow_depth_result = iddf_tinue_search(&mut position, depth - 2, side_to_move, false);
-    assert!(shallow_depth_result.is_none());
-
-    // Check that the tinue solution is correct and unique
-    let result = iddf_tinue_search(&mut position, depth, side_to_move, false).unwrap();
-    assert_eq!(result.result.len(), 1);
-    assert_eq!(result.result[0].mv, answer_move.to_string::<S>());
-
-    let negamax_result = alpha_beta::<S>(
-        &mut position,
-        depth,
-        NodeValue::WinInPly(depth),
-        NodeValue::WinInPly(0),
+    assert_eq!(
+        find_unique_tinue(&mut position, depth),
+        Some((answer_move, depth))
     );
-    assert_eq!(negamax_result, NodeValue::WinInPly(depth));
 }
