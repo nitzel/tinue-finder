@@ -113,7 +113,7 @@ fn handle_game(
     let negamax_result = alpha_beta::alpha_beta(
         &mut position,
         max_depth,
-        NodeValue::WinInPly(max_depth),
+        NodeValue::WinInPly(max_depth + 1),
         NodeValue::WinInPly(0),
     );
 
