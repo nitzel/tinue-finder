@@ -1,4 +1,5 @@
 #![feature(slice_group_by)]
+use crate::alpha_beta::NodeValue;
 use board_game_traits::{Color, GameResult, Position as PositionTrait};
 use clap::{App, Arg};
 use pgn_traits::PgnPosition;
@@ -10,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::{time::Instant, usize};
 use tiltak::position::{Move, Position, Role, TunableBoard};
 
+mod alpha_beta;
 #[cfg(test)]
 mod tests;
 
@@ -94,6 +96,31 @@ fn handle_game(
     println!(
         "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
         game.id, game.size, game.result, max_depth, actual_depth, plies_to_undo, time_taken, json_string
+    );
+
+    let negamax_start_time = Instant::now();
+
+    let moves = parse_server_notation::<5>(&game.notation);
+    // Apply moves
+    let mut position = Position::<5>::start_position();
+    for ply in moves.iter().take(moves.len() - plies_to_undo as usize) {
+        print!("{} ", position.move_to_san(&ply));
+        position.do_move(ply.clone());
+    }
+
+    println!();
+
+    let negamax_result = alpha_beta::alpha_beta(
+        &mut position,
+        max_depth,
+        NodeValue::WinInPly(max_depth),
+        NodeValue::WinInPly(0),
+    );
+
+    println!(
+        "Got negamax result {:?} in {:.1}s",
+        negamax_result,
+        negamax_start_time.elapsed().as_secs_f64()
     );
 
     match actual_depth {

@@ -1,8 +1,10 @@
+use crate::alpha_beta::{alpha_beta, NodeValue};
 use crate::iddf_tinue_search;
 use board_game_traits::Position as PositionTrait;
 use pgn_traits::PgnPosition;
 use tiltak::position::{Move, Position};
 
+mod alpha_beta_tests;
 mod tinue_tests_5s;
 mod tinue_tests_6s;
 
@@ -32,5 +34,13 @@ fn run_tinue_test<const S: usize>(depth: u32, move_strings: &[&str], answer_move
     // Check that the tinue solution is correct and unique
     let result = iddf_tinue_search(&mut position, depth, side_to_move, false).unwrap();
     assert_eq!(result.result.len(), 1);
-    assert_eq!(result.result[0].mv, answer_move.to_string::<S>())
+    assert_eq!(result.result[0].mv, answer_move.to_string::<S>());
+
+    let negamax_result = alpha_beta::<S>(
+        &mut position,
+        depth,
+        NodeValue::WinInPly(depth),
+        NodeValue::WinInPly(0),
+    );
+    assert_eq!(negamax_result, NodeValue::WinInPly(depth));
 }
