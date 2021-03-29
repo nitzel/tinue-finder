@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::{time::Instant, usize};
 use tiltak::position::{Move, Position};
 
-mod alpha_beta;
 #[cfg(test)]
 mod tests;
+mod tinue_search;
 
 fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
     let move_splits = server_notation.split(',');
@@ -36,10 +36,10 @@ fn find_unique_tinue_sized<const S: usize>(
     println!("TPS {}", position.to_fen());
 
     // Reconstruct the principal variation of the tinue
-    alpha_beta::find_unique_tinue::<S>(&mut position, depth).map(|(mv, depth)| {
+    tinue_search::find_unique_tinue::<S>(&mut position, depth).map(|(mv, depth)| {
         let mut pv_string = vec![position.move_to_san(&mv)];
         position.do_move(mv);
-        pv_string.append(&mut alpha_beta::pv(position.clone(), depth - 1));
+        pv_string.append(&mut tinue_search::pv(position.clone(), depth - 1));
         (pv_string, depth)
     })
 }

@@ -1,4 +1,4 @@
-use crate::alpha_beta::NodeValue::*;
+use crate::tinue_search::NodeValue::*;
 
 #[test]
 fn node_values_sorting_test() {

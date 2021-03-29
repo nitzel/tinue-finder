@@ -1,4 +1,4 @@
-use crate::alpha_beta::NodeValue::*;
+use crate::tinue_search::NodeValue::*;
 use crate::MoveString;
 use board_game_traits::{Color::*, GameResult::*, Position as PositionTrait};
 use pgn_traits::PgnPosition;

@@ -1,4 +1,4 @@
-use crate::alpha_beta::find_unique_tinue;
+use crate::tinue_search::find_unique_tinue;
 use board_game_traits::Position as PositionTrait;
 use pgn_traits::PgnPosition;
 use tiltak::position::{Move, Position};
