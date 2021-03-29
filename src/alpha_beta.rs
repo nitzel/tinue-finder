@@ -1,5 +1,7 @@
 use crate::alpha_beta::NodeValue::*;
+use crate::MoveString;
 use board_game_traits::{Color::*, GameResult::*, Position as PositionTrait};
+use pgn_traits::PgnPosition;
 use std::cmp::Ordering;
 use tiltak::position::{Move, Position, TunableBoard};
 
@@ -150,6 +152,45 @@ fn find_unique_tinue_for_depth<const S: usize>(
     } else {
         TinueResult::None
     }
+}
+
+pub fn best_move<const S: usize>(position: &mut Position<S>, depth: u32) -> Move {
+    let moves = generate_sorted_moves(position);
+
+    let mut best_move = moves[0].clone().0;
+    let mut best_score = NodeValue::MIN_VALUE;
+
+    for (mv, _score) in moves {
+        let reverse_move = position.do_move(mv.clone());
+        let score = alpha_beta(
+            position,
+            depth - 1,
+            NodeValue::MIN_VALUE,
+            NodeValue::MAX_VALUE,
+        )
+        .propagate_up();
+        position.reverse_move(reverse_move);
+        if score > best_score {
+            best_move = mv;
+            best_score = score;
+        }
+    }
+    best_move
+}
+
+/// Reconstruct the principal variation of a tinue sequence of `depth`
+/// This is done in a separate function from `find_unique_tinue`, for performance and
+/// code simplicity reasons
+pub fn pv<const S: usize>(mut position: Position<S>, mut depth: u32) -> Vec<MoveString> {
+    let mut pv = vec![];
+    while position.game_result().is_none() {
+        assert!(depth > 0);
+        let best_move = best_move(&mut position, depth);
+        pv.push(position.move_to_san(&best_move));
+        position.do_move(best_move.clone());
+        depth -= 1;
+    }
+    pv
 }
 
 /// Returns a tinue move and a depth, if the move is unique at that depth
