@@ -8,6 +8,7 @@ use rusqlite::{params, OpenFlags};
 use std::sync::{Arc, Mutex};
 use std::{time::Instant, usize};
 use tiltak::position::{Move, Position};
+use tiltak::search::{MctsSetting, MonteCarloTree};
 
 #[cfg(test)]
 mod tests;
@@ -36,7 +37,25 @@ fn find_unique_tinue_sized<const S: usize>(
     println!("TPS {}", position.to_fen());
 
     // Reconstruct the principal variation of the tinue
-    tinue_search::find_unique_tinue::<S>(&mut position, depth).map(|(mv, depth)| {
+    let result = tinue_search::find_unique_tinue::<S>(&mut position, depth);
+
+    result.map(|(mv, depth)| {
+        let mcts_start_time = Instant::now();
+        let mcts_settings = MctsSetting::default().exclude_moves(vec![mv.clone()]);
+        let mut mcts_tree = MonteCarloTree::with_settings(position.clone(), mcts_settings);
+        for _ in 0..1_000_000 {
+            mcts_tree.select();
+        }
+
+        let (alternative_move, alternative_score) = mcts_tree.best_move();
+        println!(
+            "Tiltak variant analysis: {}, {:.1}% after {:.1}s, tps: {}",
+            position.move_to_san(&alternative_move),
+            alternative_score * 100.0,
+            mcts_start_time.elapsed().as_secs_f64(),
+            position.to_fen()
+        );
+
         let mut pv_string = vec![position.move_to_san(&mv)];
         position.do_move(mv);
         pv_string.append(&mut tinue_search::pv(position.clone(), depth - 1));
