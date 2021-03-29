@@ -18,11 +18,13 @@ fn parse_server_notation<const S: usize>(server_notation: &str) -> Vec<Move> {
     move_splits.map(Move::from_string_playtak::<S>).collect()
 }
 
+/// Finds a unique tinue sequence, down to the given `depth`.
+/// Returns the principal variation as a vector of move strings, and the depth of the tinue
 fn find_unique_tinue_sized<const S: usize>(
     server_notation: &str,
     plies_to_undo: u32,
     depth: u32,
-) -> Option<(Move, u32)> {
+) -> Option<(Vec<MoveString>, u32)> {
     let moves = parse_server_notation::<S>(server_notation);
     // Apply moves
     let mut position = Position::<S>::start_position();
@@ -33,7 +35,13 @@ fn find_unique_tinue_sized<const S: usize>(
     }
     println!("TPS {}", position.to_fen());
 
-    alpha_beta::find_unique_tinue::<S>(&mut position, depth)
+    // Reconstruct the principal variation of the tinue
+    alpha_beta::find_unique_tinue::<S>(&mut position, depth).map(|(mv, depth)| {
+        let mut pv_string = vec![position.move_to_san(&mv)];
+        position.do_move(mv);
+        pv_string.append(&mut alpha_beta::pv(position.clone(), depth - 1));
+        (pv_string, depth)
+    })
 }
 
 fn handle_game(game: &GameRow, max_depth: u32, plies_to_undo: u32) -> Option<TinueGameRow> {
@@ -46,38 +54,35 @@ fn handle_game(game: &GameRow, max_depth: u32, plies_to_undo: u32) -> Option<Tin
         s => panic!("Board size '{}' is not supported", s),
     };
 
-    let actual_depth = result.as_ref().map(|(_mv, depth)| *depth).unwrap_or(0);
-
-    // moves include a first move from `me` and then answers to all possible replies from `opponent`
-    // To reduce the data saved to the database (this one would be massive) the decision was taken to store only
-    // a single example of a Tinue (the longest one available) in the move_options below if find_only_one_tinue
-    let json_string = match result.as_ref() {
-        None => "null".to_string(),
-        Some((mv, _depth)) => match game.size {
-            4 => mv.to_string::<4>(),
-            5 => mv.to_string::<5>(),
-            6 => mv.to_string::<6>(),
-            _ => unimplemented!(),
-        },
-    };
-
     let time_taken = timer.elapsed().as_millis();
-    println!(
-        "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
-        game.id, game.size, game.result, max_depth, actual_depth, plies_to_undo, time_taken, json_string
-    );
 
-    match actual_depth {
-        0 | 1 => None, // Ignore no wins and  immediate wins
-        _ => Some(TinueGameRow {
+    if let Some((pv_strings, actual_depth)) = result {
+        let json_string = serde_json::to_string(&pv_strings).unwrap();
+
+        println!(
+            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":{}, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":{}}}",
+            game.id, game.size, game.result, max_depth, actual_depth, plies_to_undo, time_taken, json_string
+        );
+
+        Some(TinueGameRow {
             plies_to_undo,
             gameid: game.id,
             tinue: json_string,
             size: game.size,
             tinue_depth: actual_depth,
-        }),
+        })
+    } else {
+        println!(
+            "{{\"id\":{}, \"size\":{}, \"result\":\"{}\", \"max-depth\":{}, \"depth\":0, \"movesToUndo\":{}, \"timeMs\":{}, \"tinue\":null}}",
+            game.id, game.size, game.result, max_depth, plies_to_undo, time_taken
+        );
+        None
     }
 }
+
+/// A string representation of a single move
+type MoveString = String;
+
 struct TinueGameRow {
     gameid: u32,
     size: u32,
