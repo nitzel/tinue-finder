@@ -52,18 +52,19 @@ fn find_unique_tinue_sized<const S: usize>(
         let mcts_time = mcts_start_time.elapsed();
 
         let mut pv_string = vec![position.move_to_san(&mv)];
+        let tps = position.to_fen();
         position.do_move(mv);
         let pv_start_time = Instant::now();
         pv_string.append(&mut tinue_search::pv(position.clone(), depth - 1));
 
         println!(
-            "Tiltak variant analysis: {}, depth {}, {:.1}% after {:.1}s, {:.1}s pv, tps: {}",
+            "// Tiltak variant analysis: {}, depth {}, {:.1}%. Took {:.1}s to analyze, {:.1}s to generate pv. TPS {}",
             position.move_to_san(&alternative_move),
             depth,
             alternative_score * 100.0,
             mcts_time.as_secs_f64(),
             pv_start_time.elapsed().as_secs_f64(),
-            position.to_fen()
+            tps
         );
 
         (pv_string, depth)
